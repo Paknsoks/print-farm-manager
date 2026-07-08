@@ -1,9 +1,21 @@
 const express = require('express');
+const multer  = require('multer');
 const path    = require('path');
 const fs      = require('fs');
 const router  = express.Router();
 
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
+const { parseGcodeFile } = require('../gcode-parser');
+
+// Multer setup for bulk gcode uploads
+if (!fs.existsSync(GCODE_DIR)) {
+  fs.mkdirSync(GCODE_DIR, { recursive: true });
+}
+const bulkStorage = multer.diskStorage({
+  destination: GCODE_DIR,
+  filename: (_req, file, cb) => cb(null, Date.now() + '_' + file.originalname),
+});
+const bulkUpload = multer({ storage: bulkStorage });
 
 module.exports = (db) => {
   const ACTIVE_QTY_SQL = `
@@ -232,6 +244,119 @@ module.exports = (db) => {
     })();
 
     res.json({ success: true });
+  });
+
+  // POST /api/parts/bulk-import — create multiple parts with gcode files at once.
+  // Accepts multipart/form-data with 'files' (multiple gcode files) and optional
+  // 'defaults' JSON string for fields applied to all parts.
+  // Fields per-file can be overridden via 'overrides' JSON array keyed by original filename.
+  router.post('/bulk-import', bulkUpload.array('files', 200), (req, res) => {
+    const { project_id, overrides } = req.body;
+
+    if (!project_id) {
+      return res.status(400).json({ error: 'project_id is required' });
+    }
+
+    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(project_id);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const files = req.files;
+    if (!files || files.length === 0) {
+      return res.status(400).json({ error: 'At least one gcode file is required' });
+    }
+
+    // Parse per-file overrides: map filename → { name, quantity, parts_per_plate, printer_model }
+    let overrideMap = {};
+    try {
+      const arr = overrides ? JSON.parse(overrides) : [];
+      for (const o of arr) {
+        overrideMap[o.fn] = o;
+      }
+    } catch (_) {
+      return res.status(400).json({ error: 'Invalid overrides JSON' });
+    }
+
+    // Get the current max sort_order for this project
+    const maxRow = db.prepare('SELECT MAX(sort_order) AS max FROM parts WHERE project_id = ?').get(project_id);
+    let nextSort = (maxRow?.max ?? -1) + 1;
+
+    const now = Date.now();
+    const results = [];
+
+    try {
+      db.transaction(() => {
+        for (const file of files) {
+          const ov = overrideMap[file.originalname] || {};
+
+          // Part name: override > fallback from filename
+          const ext = path.extname(file.originalname);
+          const baseName = path.basename(file.originalname, ext);
+          const fallbackName = baseName.replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Imported Part';
+          const partName = ov.name || fallbackName;
+
+          // Parse gcode file content for metadata (print time, filament, etc.)
+          const gcodeMeta = parseGcodeFile(file.path);
+
+          // Printer model: override > gcode metadata
+          const printerModel = ov.printer_model || gcodeMeta.printer_model || '';
+
+          if (!printerModel) {
+            throw new Error(`No printer model for "${file.originalname}" — select one in the staging table`);
+          }
+
+          // Validate printer model exists
+          const modelExists = db.prepare('SELECT 1 FROM printer_models WHERE model_id = ?').get(printerModel);
+          if (!modelExists) {
+            throw new Error(`Unknown printer model "${printerModel}" for "${file.originalname}" — add it in Settings first`);
+          }
+
+          const partsPerPlate = ov.parts_per_plate || 1;
+          const qty = ov.quantity || 1;
+
+          // Print time/material: gcode metadata only (not user-settable in staging)
+          const estPrintSecs = gcodeMeta.estimated_time_s || null;
+          const materialGrams = gcodeMeta.filament_used_g || null;
+
+          // Create the part
+          const partResult = db.prepare(`
+            INSERT INTO parts (project_id, name, target_qty, print_time_seconds, material_grams, sort_order, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(project_id, partName, qty, estPrintSecs, materialGrams, nextSort, now, now);
+
+          // Create the gcode record
+          db.prepare(`
+            INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(partResult.lastInsertRowid, printerModel, file.originalname, file.filename, partsPerPlate, estPrintSecs, materialGrams, now);
+
+          nextSort++;
+
+          results.push({
+            id: partResult.lastInsertRowid,
+            name: partName,
+            target_qty: qty,
+            printer_model: printerModel,
+            parts_per_plate: partsPerPlate,
+            est_print_secs: estPrintSecs,
+            material_grams: materialGrams,
+            filament_type: gcodeMeta.filament_type || '',
+            layer_height: gcodeMeta.layer_height,
+            nozzle_temp: gcodeMeta.nozzle_temp,
+            bed_temp: gcodeMeta.bed_temp,
+          });
+        }
+      })();
+
+      res.status(201).json({ parts: results, count: results.length });
+    } catch (err) {
+      // Clean up uploaded files on failure
+      for (const file of files) {
+        try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
+      }
+      return res.status(400).json({ error: err.message });
+    }
   });
 
   return router;

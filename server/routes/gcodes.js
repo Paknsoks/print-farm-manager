@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const router = express.Router();
+const { parseGcodeFile } = require('../gcode-parser');
 
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
@@ -174,6 +175,29 @@ module.exports = (db) => {
     );
 
     res.status(201).json(db.prepare('SELECT * FROM gcodes WHERE id = ?').get(gcode.lastInsertRowid));
+  });
+
+  // POST /api/gcodes/:id/parse — parse the actual gcode file content for metadata
+  // Returns parsed fields; does NOT auto-save to DB — user clicks Save after reviewing.
+  router.post('/:id/parse', (req, res) => {
+    const gcode = db.prepare('SELECT * FROM gcodes WHERE id = ?').get(req.params.id);
+    if (!gcode) return res.status(404).json({ error: 'G-code not found' });
+
+    const gcodeFilename = gcode.filepath.split(/[\\/]/).pop();
+    const fullPath = path.join(GCODE_DIR, gcodeFilename);
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({ error: 'G-code file not found on disk' });
+    }
+
+    const meta = parseGcodeFile(fullPath);
+    res.json({
+      est_print_secs: meta.estimated_time_s,
+      material_grams: meta.filament_used_g,
+      filament_type: meta.filament_type || '',
+      layer_height: meta.layer_height,
+      nozzle_temp: meta.nozzle_temp,
+      bed_temp: meta.bed_temp,
+    });
   });
 
   // PUT /api/gcodes/:id — update est_print_secs and/or material_grams

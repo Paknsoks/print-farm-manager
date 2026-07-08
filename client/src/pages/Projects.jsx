@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useToast } from '../useToast';
 import EmptyState from '../components/EmptyState';
 import { useConfirm } from '../useConfirm';
+import BulkImportPanel from '../components/BulkImportPanel';
 
 // ── Estimate helpers ──────────────────────────────────────────────────────────
 
@@ -422,6 +423,7 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
   const [timeDraft, setTimeDraft]         = useState(formatDurationForInput(gc.est_print_secs));
   const [materialDraft, setMaterialDraft] = useState(formatMaterialForInput(gc.material_grams));
   const [parsing, setParsing]             = useState(false);
+  const [parsingGcode, setParsingGcode]   = useState(false);
   const [saving, setSaving]               = useState(false);
   const [error, setError]                 = useState(null);
   const [availableGroups, setAvailableGroups] = useState([]);
@@ -467,6 +469,24 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
       setError(err.message);
     }
     setParsing(false);
+  }
+
+  async function parseFromGcode() {
+    setParsingGcode(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/gcodes/${gc.id}/parse`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Parse failed'); return; }
+      if (data.est_print_secs != null) setTimeDraft(formatDurationForInput(data.est_print_secs));
+      if (data.material_grams != null) setMaterialDraft(formatMaterialForInput(data.material_grams));
+      if (data.est_print_secs == null && data.material_grams == null) {
+        setError('No print time or filament data found in gcode file.');
+      }
+    } catch (err) {
+      setError(err.message);
+    }
+    setParsingGcode(false);
   }
 
   async function save() {
@@ -538,16 +558,29 @@ function GcodeEstimateRow({ gc, onDelete, onSaved, filamentTypes, filamentColors
         />
         <button
           onClick={parseFromFilename}
-          disabled={parsing}
+          disabled={parsing || parsingGcode}
           title="Re-read print time and material weight from the filename (e.g. …_2h30m_45g.gcode)"
           style={{
             background: '#1f2937', color: '#94a3b8',
             border: '1px solid #2d3748', borderRadius: 4,
-            padding: '5px 10px', fontSize: 12, cursor: parsing ? 'not-allowed' : 'pointer',
-            opacity: parsing ? 0.7 : 1, flexShrink: 0,
+            padding: '5px 10px', fontSize: 12, cursor: (parsing || parsingGcode) ? 'not-allowed' : 'pointer',
+            opacity: (parsing || parsingGcode) ? 0.7 : 1, flexShrink: 0,
           }}
         >
           {parsing ? 'Parsing…' : 'Parse filename'}
+        </button>
+        <button
+          onClick={parseFromGcode}
+          disabled={parsing || parsingGcode}
+          title="Parse the gcode file content for print time and filament usage metadata"
+          style={{
+            background: '#1f2937', color: '#94a3b8',
+            border: '1px solid #2d3748', borderRadius: 4,
+            padding: '5px 10px', fontSize: 12, cursor: (parsing || parsingGcode) ? 'not-allowed' : 'pointer',
+            opacity: (parsing || parsingGcode) ? 0.7 : 1, flexShrink: 0,
+          }}
+        >
+          {parsingGcode ? 'Parsing…' : 'Parse G-code'}
         </button>
         <button
           onClick={save}
@@ -839,7 +872,7 @@ function PartDetailsPanel({ part, gcodes, onRefresh, onSaved, onConfirm, filamen
             borderRadius: 4, padding: '5px 12px', fontSize: 12, cursor: checking ? 'wait' : 'pointer',
           }}
         >
-          {checking ? 'Checking…' : 'Why isn’t this printing?'}
+          {checking ? 'Checking…' : "Why isn't this printing?"}
         </button>
         {dispatchCheck && (
           <div style={{
@@ -890,6 +923,9 @@ export default function Projects() {
   const [newPartName, setNewPartName]     = useState('');
   const [newPartQty, setNewPartQty]       = useState('');
   const [addingPart, setAddingPart]       = useState(false);
+
+  // Bulk import toggle
+  const [showBulkImport, setShowBulkImport] = useState(false);
 
   // Details panels (set of open part IDs)
   const [openPanels, setOpenPanels]       = useState(new Set());
@@ -1175,6 +1211,7 @@ export default function Projects() {
   function goBack() {
     setSelectedId(null); setDetailProject(null); setParts([]); setGcodesMap({});
     setOpenPanels(new Set());
+    setShowBulkImport(false);
   }
 
   async function saveProjectFilament(material, color) {
@@ -1198,6 +1235,12 @@ export default function Projects() {
     });
     await Promise.all([fetchDetail(detailProject.id), fetchProjects()]);
     showToast('Saved');
+  }
+
+  function handleBulkImported(count) {
+    setShowBulkImport(false);
+    fetchDetail(selectedId);
+    showToast(`Imported ${count} part(s)`);
   }
 
 
@@ -1336,7 +1379,7 @@ export default function Projects() {
                 <strong style={{ color: '#cbd5e1' }}>Parts</strong> (what to print and how many),
                 each part gets <strong style={{ color: '#cbd5e1' }}>G-code</strong> uploaded per printer model,
                 and the scheduler dispatches <strong style={{ color: '#cbd5e1' }}>Jobs</strong> to idle printers
-                until every part hits its target quantity. Start with “+ New Project” above.
+                until every part hits its target quantity. Start with "+ New Project" above.
               </>
             }
           />
@@ -1679,8 +1722,27 @@ export default function Projects() {
           >
             Add Part
           </button>
+          <button
+            onClick={() => setShowBulkImport(v => !v)}
+            style={{
+              background: showBulkImport ? '#1e3a5f' : '#1f2937',
+              color: showBulkImport ? '#60a5fa' : '#94a3b8',
+              border: `1px solid ${showBulkImport ? '#1e40af' : '#2d3748'}`,
+              borderRadius: 4, padding: '6px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            }}
+          >
+            {showBulkImport ? '− Hide Bulk Import' : '+ Bulk Import'}
+          </button>
         </div>
       </div>
+
+      {/* Bulk Import Panel */}
+      {showBulkImport && (
+        <BulkImportPanel
+          projectId={selectedId}
+          onImported={handleBulkImported}
+        />
+      )}
     </div>
   );
 }
