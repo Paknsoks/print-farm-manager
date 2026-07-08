@@ -2036,3 +2036,24 @@ Fleet summary showing six stat cards: Total, Printing, Idle, Error, Attention, O
 - `react-router-dom` ^6.24.0
 - `vite` ^5.3.1
 - `@vitejs/plugin-react` ^4.3.1
+
+---
+
+## 2026-07-09 — Bulk part import with gcode content parsing
+
+Streamlines adding multi-part projects to the print farm. Instead of creating each part individually and uploading gcode one-by-one, operators can select multiple gcode files at once, override per-file fields (name, quantity, parts per plate, printer model) in a staging table with bulk-edit controls, and import everything in a single click. Per-file overrides from the staging table take priority over gcode metadata.
+
+A new `server/gcode-parser.js` utility reads the last 50KB of gcode files — scanning only comment lines with early exit — and extracts slicer metadata (print time, filament usage, filament type, layer height, temperatures) from PrusaSlicer, OrcaSlicer, Bambu Studio, Cura, and others.
+
+The gcode content parser is also exposed via `POST /api/gcodes/:id/parse` and surfaced in the part details "G-code Files" section as a "Parse G-code" button alongside the existing "Parse filename" button.
+
+Printer model dropdowns in the staging table only show models the user actually has printers configured for (queried from the printers table, not the models registry).
+
+### Changes
+- `server/gcode-parser.js` — new utility: tail-reads gcode files, filters comment lines, regex-matches slicer metadata patterns, exits early when all fields found
+- `server/routes/parts.js` — added `POST /api/parts/bulk-import`: accepts multipart `files[]` + `overrides` JSON, creates parts+gcodes in a single transaction, per-file override fields take priority over gcode metadata
+- `server/routes/gcodes.js` — added `POST /api/gcodes/:id/parse`: reads an uploaded gcode file from disk and returns parsed metadata
+- `client/src/components/BulkImportPanel.jsx` — new component: file browser, staging table, bulk-edit bar, "Import N Part(s)" action
+- `client/src/pages/Projects.jsx` — added `+ Bulk Import` toggle button in the Add Part form, added "Parse G-code" button in per-part gcode estimate rows
+- `docs/api.md` — documented both new endpoints
+- `docs/web-app.md` — added Bulk Import Panel section

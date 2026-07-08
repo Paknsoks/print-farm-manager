@@ -316,6 +316,22 @@ Diagnostic for the "Why isn't this printing?" button on the Projects page. Mirro
 
 Required: `project_id`, `name`, `target_qty`.
 
+### `POST /api/parts/bulk-import`
+
+Create multiple parts with G-code files at once. `Content-Type: multipart/form-data`.
+
+**Form fields:**
+- `project_id` (required)
+- `files` — multiple gcode files (field name `files`, array upload, max 200)
+- `overrides` — JSON array of per-file overrides: `[{"fn":"part_A.gcode","name":"Front Bracket","quantity":1,"parts_per_plate":1,"printer_model":"mk4s"}, ...]`
+
+Each file is parsed for print time and filament usage from gcode content metadata. Override fields take priority over parsed metadata. Creates a `parts` row and a `gcodes` row per file in a single transaction (all-or-nothing).
+
+**Response:**
+```json
+{ "parts": [{ "id": 1, "name": "Front Bracket", "target_qty": 1, "printer_model": "mk4s", "parts_per_plate": 1, "est_print_secs": 18660, "material_grams": 45.2, "filament_type": "PLA" }], "count": 1 }
+```
+
 ### `PUT /api/parts/:id`
 
 Partial update. Accepts: `name`, `target_qty`, `completed_qty`, `status`.
@@ -385,6 +401,15 @@ Parses a G-code filename and returns structured fields without saving anything. 
 **Response (no match):** `{ "parse_failed": true, "material_grams": null }`
 
 `material_grams` is extracted from flexible patterns anywhere in the filename (e.g. `45g`, `1.2kg`) and is returned regardless of whether the strict Bambu-format parse succeeded. Either field may be `null` if not found.
+
+### `POST /api/gcodes/:id/parse`
+
+Reads an already-uploaded G-code file from disk and extracts print time, filament usage, and filament type from slicer metadata comments. Returns parsed fields without saving — the operator reviews then clicks Save. `404` if the gcode record or file doesn't exist.
+
+**Response:**
+```json
+{ "est_print_secs": 37800, "material_grams": 45.2, "filament_type": "PLA", "layer_height": 0.2, "nozzle_temp": 215, "bed_temp": 60 }
+```
 
 ### `POST /api/gcodes/upload`
 

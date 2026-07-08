@@ -70,8 +70,8 @@ export default function BulkImportPanel({ projectId, onImported }) {
       {items.length > 1 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #2d3748' }}>
           <span style={{ fontSize: 11, color: '#475569' }}>Bulk set all:</span>
-          <span style={{ fontSize: 11, color: '#64748b' }}>Qty</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('qty', +e.target.value)} style={{ ...sx.i, width: 50 }} />
-          <span style={{ fontSize: 11, color: '#64748b' }}>Per Plate</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('ppp', +e.target.value)} style={{ ...sx.i, width: 50 }} />
+          <span style={{ fontSize: 11, color: '#64748b' }}>Qty</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('qty', +e.target.value)} style={{ ...sx.i, width: 70 }} />
+          <span style={{ fontSize: 11, color: '#64748b' }}>Per Plate</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('ppp', +e.target.value)} style={{ ...sx.i, width: 70 }} />
           {models.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Model</span><select onChange={e => e.target.value && bulk('model', e.target.value)} style={{ ...sx.i, width: 100, fontSize: 11 }}><option value="">Set all…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select></>}
         </div>
       )}
@@ -80,15 +80,15 @@ export default function BulkImportPanel({ projectId, onImported }) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead><tr style={{ borderBottom: '1px solid #2d3748' }}>
               <th style={th('File', undefined)}>File</th><th style={th('Part Name', undefined)}>Part Name</th>
-              <th style={{ ...th('Qty', 50), textAlign: 'center' }}>Qty</th><th style={{ ...th('Per Plate', 60), textAlign: 'center' }}>Plate</th>
+              <th style={{ ...th('Qty', 70), textAlign: 'center' }}>Qty</th><th style={{ ...th('Per Plate', 70), textAlign: 'center' }}>Plate</th>
               <th style={th('Model', 100)}>Model *</th><th style={{ width: 30 }} />
             </tr></thead>
             <tbody>{items.map((it, idx) => (
               <tr key={idx} style={{ borderBottom: '1px solid #1e2433' }}>
                 <td style={{ padding: '4px 8px', color: '#94a3b8', fontSize: 11, fontFamily: 'monospace', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.fn}</td>
                 <td style={{ padding: '4px 8px' }}><input value={it.name} onChange={e => upd(idx, 'name', e.target.value)} style={{ ...sx.i, width: '100%', boxSizing: 'border-box' }} /></td>
-                <td style={{ padding: '4px 8px', textAlign: 'center' }}><input type="number" min={1} value={it.qty} onChange={e => upd(idx, 'qty', +e.target.value || 1)} style={{ ...sx.i, width: 50, textAlign: 'center' }} /></td>
-                <td style={{ padding: '4px 8px', textAlign: 'center' }}><input type="number" min={1} value={it.ppp} onChange={e => upd(idx, 'ppp', +e.target.value || 1)} style={{ ...sx.i, width: 50, textAlign: 'center' }} /></td>
+                <td style={{ padding: '4px 8px', textAlign: 'center' }}><input type="number" min={1} value={it.qty} onChange={e => upd(idx, 'qty', +e.target.value || 1)} style={{ ...sx.i, width: 70, textAlign: 'center' }} /></td>
+                <td style={{ padding: '4px 8px', textAlign: 'center' }}><input type="number" min={1} value={it.ppp} onChange={e => upd(idx, 'ppp', +e.target.value || 1)} style={{ ...sx.i, width: 70, textAlign: 'center' }} /></td>
                 <td style={{ padding: '4px 8px' }}>{models.length > 0
                   ? <select value={it.model} onChange={e => upd(idx, 'model', e.target.value)} style={{ ...sx.i, width: 90, fontSize: 11 }}><option value="">Select…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select>
                   : <input value={it.model} onChange={e => upd(idx, 'model', e.target.value)} placeholder="e.g. mk4s" style={{ ...sx.i, width: 90, fontSize: 11 }} />}

@@ -245,7 +245,16 @@ Primary operator screen for setting up and launching print runs.
   - *Quantities* — editable Have (completed_qty) and Need (target_qty) fields, single Save button. Confirm dialogs guard open↔closed transitions. Server auto-calculates status.
   - *G-code Files* — lists each uploaded file with filename, printer model badge, and × delete button (with confirm) → `DELETE /api/gcodes/:id`
   - *Upload G-code* — file picker → `POST /api/gcodes/parse-filename` pre-fills `parts_per_plate` and model. `409` duplicate error shown inline.
-- **Add Part form:** name + target quantity → `POST /api/parts`
+- **Add Part form:** name + target quantity → `POST /api/parts`. A **+ Bulk Import** toggle button next to it opens the Bulk Import Panel.
+
+- **Bulk Import Panel** (new): multi-select gcode files, stage them for review in a table, then import all at once.
+  - Each file becomes a staging row with auto-named part (from filename), qty (default 1), parts per plate (default 1), and printer model dropdown
+  - Bulk-edit bar: set all Qty / Parts Per Plate / Printer Model at once
+  - Printer model dropdown only shows models configured printers exist for
+  - "Import N Part(s)" creates all parts and gcode records in a single transaction
+  - G-code files are automatically parsed for print time and filament usage from slicer metadata
+  - Per-file overrides (name, qty, model, parts per plate) from the staging table take priority over gcode metadata
+- **Parse G-code button**: in per-part G-code estimate rows, "Parse G-code" reads the actual file content for slicer metadata and fills the time/material fields
 
 ## Jobs Page
 
