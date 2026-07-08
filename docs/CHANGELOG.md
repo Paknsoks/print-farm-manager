@@ -2,6 +2,38 @@
 
 ---
 
+## 2026-07-09 — Bulk part import with gcode content parsing
+
+Streamlines adding multi-part projects to the print farm. Instead of creating each part individually and uploading gcode one-by-one, operators can select multiple gcode files at once, override per-file fields (name, quantity, parts per plate, printer model) in a staging table with bulk-edit controls, and import everything in a single click. Per-file overrides from the staging table take priority over gcode metadata.
+
+A new `server/gcode-parser.js` utility reads both the file head (4KB, for Cura/Bambu header metadata) and tail (50KB, for PrusaSlicer/Orca footer metadata), scanning only comment lines with early exit. Extracted fields by slicer:
+
+| Field | PrusaSlicer | OrcaSlicer | Bambu Studio | Cura |
+|---|---|---|---|---|
+| Print time | ✓ | ✓ | ✓ | ✓ (`;TIME:`) |
+| Filament weight (g) | ✓ | ✓ | ✓ | Custom gcode only (`;weight: [g]`) |
+| Filament type | ✓ | ✓ | ✓ | — |
+| Layer height | ✓ | ✓ | ✓ | ✓ (`;Layer height:`) |
+| Nozzle/bed temp | ✓ | ✓ | ✓ | — |
+| Printer model | ✓ | ✓ | ✓ | ✓ (`;TARGET_MACHINE.NAME:`) |
+
+Cura outputs filament length in meters, not weight in grams, so `filament_used_g` is null unless the operator adds a `;weight: {filament_weight}` custom start gcode line.
+
+The gcode content parser is also exposed via `POST /api/gcodes/:id/parse` and surfaced in the part details "G-code Files" section as a "Parse G-code" button alongside the existing "Parse filename" button.
+
+Printer model dropdowns in the staging table only show models the user actually has printers configured for (queried from the printers table, not the models registry).
+
+### Changes
+- `server/gcode-parser.js` — new utility: reads both file head (4KB, for Cura/Bambu header metadata) and tail (50KB, for PrusaSlicer/Orca footer metadata), filters comment lines, regex-matches slicer metadata patterns, exits early when all fields found. Supports PrusaSlicer, OrcaSlicer, Bambu Studio, and Cura (print time, layer height, and printer model — Cura does not provide filament weight in grams by default).
+- `server/routes/parts.js` — added `POST /api/parts/bulk-import`: accepts multipart `files[]` + `overrides` JSON, creates parts+gcodes in a single transaction, per-file override fields take priority over gcode metadata. Validates Bambu models require `.3mf` files at import time (catches the problem now rather than at dispatch). Cleans up uploaded files on all early-rejection paths (P2 fix).
+- `server/routes/gcodes.js` — added `POST /api/gcodes/:id/parse`: reads an uploaded gcode file from disk and returns parsed metadata without auto-saving
+- `client/src/components/BulkImportPanel.jsx` — new component: file browser, staging table, bulk-edit bar, "Import N Part(s)" action. Qty/Plate inputs widened to 70px for spinner arrows.
+- `client/src/pages/Projects.jsx` — added `+ Bulk Import` toggle button in the Add Part form, added "Parse G-code" button alongside "Parse filename" in per-part gcode estimate rows
+- `docs/api.md` — documented both new endpoints
+- `docs/web-app.md` — added Bulk Import Panel section
+
+---
+
 ## 2026-07-07 — Dockerized development workflow (`dev` profile)
 
 Following up on issue #15 (developer couldn't get a containerized dev environment running: `ERROR: client/dist/index.html not found` when trying to run the server for local dev) and the maintainer's own admission there that the `Dockerfile` "was just focused on production... I've been lazy to put together a development target" — added a Docker-based alternative to the native `npm run dev` workflow. Purely additive: the native workflow in the README/Installation Guide is unchanged, and the production `docker compose up` path is unchanged (still builds the same `runtime` target it always has, now pinned explicitly).
@@ -2036,35 +2068,3 @@ Fleet summary showing six stat cards: Total, Printing, Idle, Error, Attention, O
 - `react-router-dom` ^6.24.0
 - `vite` ^5.3.1
 - `@vitejs/plugin-react` ^4.3.1
-
----
-
-## 2026-07-09 — Bulk part import with gcode content parsing
-
-Streamlines adding multi-part projects to the print farm. Instead of creating each part individually and uploading gcode one-by-one, operators can select multiple gcode files at once, override per-file fields (name, quantity, parts per plate, printer model) in a staging table with bulk-edit controls, and import everything in a single click. Per-file overrides from the staging table take priority over gcode metadata.
-
-A new `server/gcode-parser.js` utility reads both the file head (4KB, for Cura/Bambu header metadata) and tail (50KB, for PrusaSlicer/Orca footer metadata), scanning only comment lines with early exit. Extracted fields by slicer:
-
-| Field | PrusaSlicer | OrcaSlicer | Bambu Studio | Cura |
-|---|---|---|---|---|
-| Print time | ✓ | ✓ | ✓ | ✓ (`;TIME:`) |
-| Filament weight (g) | ✓ | ✓ | ✓ | Custom gcode only (`;weight: [g]`) |
-| Filament type | ✓ | ✓ | ✓ | — |
-| Layer height | ✓ | ✓ | ✓ | ✓ (`;Layer height:`) |
-| Nozzle/bed temp | ✓ | ✓ | ✓ | — |
-| Printer model | ✓ | ✓ | ✓ | ✓ (`;TARGET_MACHINE.NAME:`) |
-
-Cura outputs filament length in meters, not weight in grams, so `filament_used_g` is null unless the operator adds a `;weight: {filament_weight}` custom start gcode line.
-
-The gcode content parser is also exposed via `POST /api/gcodes/:id/parse` and surfaced in the part details "G-code Files" section as a "Parse G-code" button alongside the existing "Parse filename" button.
-
-Printer model dropdowns in the staging table only show models the user actually has printers configured for (queried from the printers table, not the models registry).
-
-### Changes
-- `server/gcode-parser.js` — new utility: tail-reads gcode files, filters comment lines, regex-matches slicer metadata patterns, exits early when all fields found
-- `server/routes/parts.js` — added `POST /api/parts/bulk-import`: accepts multipart `files[]` + `overrides` JSON, creates parts+gcodes in a single transaction, per-file override fields take priority over gcode metadata
-- `server/routes/gcodes.js` — added `POST /api/gcodes/:id/parse`: reads an uploaded gcode file from disk and returns parsed metadata
-- `client/src/components/BulkImportPanel.jsx` — new component: file browser, staging table, bulk-edit bar, "Import N Part(s)" action
-- `client/src/pages/Projects.jsx` — added `+ Bulk Import` toggle button in the Add Part form, added "Parse G-code" button in per-part gcode estimate rows
-- `docs/api.md` — documented both new endpoints
-- `docs/web-app.md` — added Bulk Import Panel section
