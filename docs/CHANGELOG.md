@@ -2,6 +2,48 @@
 
 ---
 
+## 2026-07-09 — Slicer post-processing script & Inbox workflow
+
+New inbox staging area for G-code files dropped by slicer post-processing scripts, plus a standalone `scripts/slicer-upload.js` that any slicer (OrcaSlicer, PrusaSlicer, Bambu Studio) can invoke. Files land in the Inbox as unassigned entries; the operator assigns each to a project as a new part (or replaces an existing part's G-code) via the web UI.
+
+### Inbox API (`/api/inbox`)
+
+Four new endpoints: `GET` (list with parsed filename hints), `POST` (multer upload, `.gcode`/`.bgcode`/`.3mf`, every post-upload rejection path calls `fs.unlinkSync` so no orphaned files are left on disk), `DELETE` (removes file + DB row), and `POST /:id/assign` with two modes — `"new"` creates a part + optional gcode, `"replace"` finds the existing gcode for `(part_id, printer_model)`, detaches historical jobs, deletes the old file, and inserts the new one. All assign validation runs before any DB writes; the operation is transactional.
+
+### Shared filename parser
+
+`parseFilename()` / `extractMaterialGramsFromFilename()` / `MODEL_TOKEN_MAP` extracted from `server/routes/gcodes.js` into `server/utils/filename-parser.js`. Both the gcodes route and inbox route now use the same single source of truth.
+
+### `scripts/slicer-upload.js` — standalone post-processing script
+
+Accepts the exported file path as a CLI argument (slicer passes it automatically), uploads via multipart `fetch` to `/api/inbox`. Flags: `--open-browser` launches the default browser to the Inbox page; `--server <url>` overrides the default `http://localhost:3000` (also settable via `PRINT_FARM_URL` env var). Cross-platform: `start` (Windows), `open` (macOS), `xdg-open` (Linux).
+
+### Inbox UI
+
+New `client/src/pages/Inbox.jsx` — table of unassigned files with parsed hint chips, assign modal (New Part / Replace Existing toggle, project/part picker, G-code detail fields, summary card for replace mode), delete with `useConfirm`. Added to the sidebar nav and routes in `App.jsx`.
+
+### Documentation
+
+- `docs/api.md` — Inbox section documenting all four endpoints with request/response examples for both assign modes.
+- `docs/slicer-integration.md` (new) — setup guide for OrcaSlicer/PrusaSlicer/Bambu Studio, environment variable / CLI flag reference, workflow walkthrough, filename convention, and troubleshooting table.
+
+### Changes
+
+- `server/db.js`: `CREATE TABLE IF NOT EXISTS inbox (id, original_filename, stored_file_path, uploaded_at)`.
+- `server/utils/filename-parser.js` (new): extracted from `server/routes/gcodes.js` — `parseFilename`, `extractMaterialGramsFromFilename`, `MODEL_TOKEN_MAP`.
+- `server/routes/gcodes.js`: imports from shared utility instead of defining its own copies; no functional change.
+- `server/routes/inbox.js` (new): `GET /api/inbox`, `POST /api/inbox`, `DELETE /api/inbox/:id`, `POST /api/inbox/:id/assign` with `_assignAsNewPart` and `_assignAsReplacement` helpers. All post-upload rejection paths clean up the written file.
+- `server/index.js`: mounts `/api/inbox` router.
+- `scripts/slicer-upload.js` (new): CLI tool for slicer integration.
+- `client/src/pages/Inbox.jsx` (new): inbox list, assign modal, delete flow.
+- `client/src/App.jsx`: Inbox nav link and route.
+- `docs/api.md`: Inbox section.
+- `docs/slicer-integration.md` (new): slicer integration guide.
+
+Verified: full server test suite passes (387 tests, 24 suites). Tested upload to a running instance: `curl -F "file=@test.gcode"` → 201; `GET /api/inbox` returns the entry with parsed hints; `POST /assign` creates part + gcode and deletes the inbox row; `DELETE` removes the file from disk.
+
+---
+
 ## 2026-07-07 — Dockerized development workflow (`dev` profile)
 
 Following up on issue #15 (developer couldn't get a containerized dev environment running: `ERROR: client/dist/index.html not found` when trying to run the server for local dev) and the maintainer's own admission there that the `Dockerfile` "was just focused on production... I've been lazy to put together a development target" — added a Docker-based alternative to the native `npm run dev` workflow. Purely additive: the native workflow in the README/Installation Guide is unchanged, and the production `docker compose up` path is unchanged (still builds the same `runtime` target it always has, now pinned explicitly).

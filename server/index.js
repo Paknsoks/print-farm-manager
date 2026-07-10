@@ -29,6 +29,7 @@ const dashboardRouter    = require('./routes/dashboard')(db);
 const settingsRouter     = require('./routes/settings')(db);
 const modelsRouter       = require('./routes/models')(db);
 const filamentsRouter    = require('./routes/filaments')(db);
+const inboxRouter        = require('./routes/inbox')(db);
 const printerJobsRouter  = require('./routes/printer-jobs')(db);
 
 const app  = express();
@@ -47,6 +48,7 @@ app.use('/api/dashboard',       dashboardRouter);
 app.use('/api/settings',        settingsRouter);
 app.use('/api/models',          modelsRouter);
 app.use('/api/filaments',       filamentsRouter);
+app.use('/api/inbox',           inboxRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

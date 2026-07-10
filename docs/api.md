@@ -425,6 +425,100 @@ Historical jobs (`finished`, `failed`, `cancelled`) are retained with their `gco
 
 ---
 
+## Inbox
+
+Staging area for G-code files dropped by the slicer post-processing script. Files live in `server/gcode/` — no separate directory. When assigned, file ownership transfers to the `gcodes` table without a physical move.
+
+### `GET /api/inbox`
+
+Returns all unassigned inbox items, newest first. Each item includes a `parsed` object with filename hints extracted using the same parser as the G-code upload page.
+
+```json
+[
+  {
+    "id": 1,
+    "original_filename": "4x Widget v2_0.4n_0.20mm_PLA_MK4S_5h11m.bgcode",
+    "stored_file_path": "1774903214349_4x Widget v2_0.4n_0.20mm_PLA_MK4S_5h11m.bgcode",
+    "uploaded_at": 1774903214349,
+    "parsed": {
+      "parse_failed": false,
+      "parts_per_plate": 4,
+      "printer_model": "mk4s",
+      "est_print_secs": 18660,
+      "part_name_hint": "Widget v2",
+      "material_grams": null
+    }
+  }
+]
+```
+
+If the filename doesn't match the known convention, `parsed` will be `{ "parse_failed": true, "material_grams": null }`.
+
+### `POST /api/inbox`
+
+Upload a G-code or 3MF file to the inbox.
+
+**Request:** `multipart/form-data` with field `file`. Accepted extensions: `.gcode`, `.bgcode`, `.3mf`.
+
+Returns `201` with the created inbox record (same shape as GET). Returns `400` if no file, unsupported extension, or multer error. All rejection paths clean up the written file from disk.
+
+### `DELETE /api/inbox/:id`
+
+Deletes the inbox entry and removes the file from `server/gcode/`. Returns `{ "success": true }`. Returns `404` if not found. If the file is already missing from disk, the DB row is still deleted (no orphaned entries).
+
+### `POST /api/inbox/:id/assign`
+
+Assign an inbox file to a project. Two modes:
+
+**Mode `"new"`** — create a new part (and optionally a gcode record):
+
+```json
+{
+  "mode": "new",
+  "project_id": 1,
+  "part_name": "Widget v2",
+  "target_qty": 100,
+  "printer_model": "mk4s",
+  "parts_per_plate": 4,
+  "est_print_secs": 18660,
+  "material_grams": 45,
+  "ams_slot": null,
+  "allowed_groups": null,
+  "required_material": null,
+  "required_color": null
+}
+```
+
+Required: `project_id`, `part_name`, `target_qty`. G-code fields are optional — when omitted, only the part is created and the file is left orphaned on disk (the inbox entry is deleted; the operator can manually clean up the file or re-upload).
+
+**Mode `"replace"`** — replace an existing part's gcode for a specific printer model:
+
+```json
+{
+  "mode": "replace",
+  "part_id": 5,
+  "printer_model": "mk4s",
+  "parts_per_plate": 4,
+  "est_print_secs": 19200,
+  "material_grams": 47,
+  "ams_slot": null,
+  "allowed_groups": null,
+  "required_material": null,
+  "required_color": null
+}
+```
+
+Required: `part_id`, `printer_model`, `parts_per_plate`. The endpoint finds the existing gcode for `(part_id, printer_model)`, detaches historical jobs from it, deletes the old file from disk, deletes the old DB row, inserts the new gcode, and deletes the inbox row. If no existing gcode exists for that model, a new one is created. Returns `400` if an active job (`queued`/`uploading`/`printing`) references the existing gcode.
+
+**Common behavior:**
+- The inbox file must exist on disk — returns `500` if missing (stale entry).
+- The project must not be archived.
+- The printer model must exist in `printer_models`.
+- Runs in a transaction — partial failure rolls back completely.
+- Returns `{ "success": true }` on success.
+
+---
+
 ## Jobs
 
 ### `GET /api/jobs`

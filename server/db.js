@@ -188,6 +188,16 @@ try {
   }
 } catch (_) {}
 
+// Inbox — staging area for files dropped by the slicer post-processing script
+try {
+  db.exec(`CREATE TABLE IF NOT EXISTS inbox (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_filename  TEXT NOT NULL,
+    stored_file_path   TEXT NOT NULL,
+    uploaded_at        INTEGER NOT NULL
+  )`);
+} catch (_) {}
+
 // Settings table — key/value store for operator-configurable options
 try {
   db.exec(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
