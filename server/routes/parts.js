@@ -6,6 +6,7 @@ const router  = express.Router();
 
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 const { parseGcodeFile } = require('../gcode-parser');
+const { parse3mfFile } = require('../3mf-parser');
 
 // Multer setup for bulk gcode uploads
 if (!fs.existsSync(GCODE_DIR)) {
@@ -307,8 +308,9 @@ module.exports = (db) => {
           const fallbackName = baseName.replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Imported Part';
           const partName = ov.name || fallbackName;
 
-          // Parse gcode file content for metadata (print time, filament, etc.)
-          const gcodeMeta = parseGcodeFile(file.path);
+          // Parse file content for metadata — .3mf uses ZIP reader, others use gcode scanner
+          const is3mf = file.originalname.toLowerCase().endsWith('.3mf');
+          const gcodeMeta = is3mf ? parse3mfFile(file.path) : parseGcodeFile(file.path);
 
           // Printer model: override > gcode metadata
           const printerModel = ov.printer_model || gcodeMeta.printer_model || '';
@@ -333,6 +335,12 @@ module.exports = (db) => {
           const partsPerPlate = ov.parts_per_plate || 1;
           const qty = ov.quantity || 1;
 
+          // Targeting fields from staging table overrides
+          const amsSlot = ov.ams_slot !== undefined && ov.ams_slot !== '' ? parseInt(ov.ams_slot, 10) : null;
+          const allowedGroups = ov.allowed_groups || null;
+          const requiredMaterial = ov.required_material || null;
+          const requiredColor = ov.required_color || null;
+
           // Print time/material: gcode metadata only (not user-settable in staging)
           const estPrintSecs = gcodeMeta.estimated_time_s || null;
           const materialGrams = gcodeMeta.filament_used_g || null;
@@ -343,11 +351,11 @@ module.exports = (db) => {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `).run(project_id, partName, qty, estPrintSecs, materialGrams, nextSort, now, now);
 
-          // Create the gcode record
+          // Create the gcode record with AMS and targeting fields
           db.prepare(`
-            INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(partResult.lastInsertRowid, printerModel, file.originalname, file.filename, partsPerPlate, estPrintSecs, materialGrams, now);
+            INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, ams_slot, allowed_groups, required_material, required_color, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(partResult.lastInsertRowid, printerModel, file.originalname, file.filename, partsPerPlate, estPrintSecs, materialGrams, amsSlot, allowedGroups, requiredMaterial, requiredColor, now);
 
           nextSort++;
 
@@ -370,7 +378,7 @@ module.exports = (db) => {
       res.status(201).json({ parts: results, count: results.length });
     } catch (err) {
       // Clean up uploaded files on failure
-      for (const file of files) {
+      for (const file of (files || [])) {
         try { if (fs.existsSync(file.path)) fs.unlinkSync(file.path); } catch (_) {}
       }
       return res.status(400).json({ error: err.message });

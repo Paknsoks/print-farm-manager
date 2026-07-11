@@ -2,20 +2,33 @@
 
 ---
 
+## 2026-07-11 — Bulk import JSON parse error fix + gcode-parser cleanup
+
+The bulk import flow could surface a cryptic `JSON.parse: unexpected character at line 1 column 1` error when the server threw an uncaught exception (e.g., iterating `undefined` after a multer error). The client's error handler now reads the response as text first and surfaces the actual server error snippet instead.
+
+### Changes
+- `server/gcode-parser.js` — removed dead `const zlib = require('zlib')` import (unused since `.3mf` ZIP reading was extracted to `server/3mf-parser.js`); removed outdated Bambu `.3mf` comment block and replaced with a pointer to `3mf-parser.js`
+- `server/routes/parts.js` — hardened the catch block at line 381 to use `for (const file of (files || []))` so a missing `req.files` array doesn't cause a secondary uncaught TypeError
+- `client/src/components/BulkImportPanel.jsx` — reads response body as text before attempting JSON parse; on parse failure, displays the raw server response snippet with status code instead of the unhelpful `JSON.parse` message
+
+---
+
 ## 2026-07-09 — Bulk part import with gcode content parsing
 
 Streamlines adding multi-part projects to the print farm. Instead of creating each part individually and uploading gcode one-by-one, operators can select multiple gcode files at once, override per-file fields (name, quantity, parts per plate, printer model) in a staging table with bulk-edit controls, and import everything in a single click. Per-file overrides from the staging table take priority over gcode metadata.
 
 A new `server/gcode-parser.js` utility reads both the file head (4KB, for Cura/Bambu header metadata) and tail (50KB, for PrusaSlicer/Orca footer metadata), scanning only comment lines with early exit. Extracted fields by slicer:
 
-| Field | PrusaSlicer | OrcaSlicer | Bambu Studio | Cura |
+| Field | PrusaSlicer | OrcaSlicer | Bambu Studio (.3mf) | Cura |
 |---|---|---|---|---|
-| Print time | ✓ | ✓ | ✓ | ✓ (`;TIME:`) |
-| Filament weight (g) | ✓ | ✓ | ✓ | Custom gcode only (`;weight: [g]`) |
-| Filament type | ✓ | ✓ | ✓ | — |
-| Layer height | ✓ | ✓ | ✓ | ✓ (`;Layer height:`) |
-| Nozzle/bed temp | ✓ | ✓ | ✓ | — |
-| Printer model | ✓ | ✓ | ✓ | ✓ (`;TARGET_MACHINE.NAME:`) |
+| Print time | ✓ | ✓ | — † | ✓ (`;TIME:`) |
+| Filament weight (g) | ✓ | ✓ | — † | Custom gcode only (`;weight: [g]`) |
+| Filament type | ✓ | ✓ | — † | — |
+| Layer height | ✓ | ✓ | ✓ (`plate_1.json`) | ✓ (`;Layer height:`) |
+| Nozzle/bed temp | ✓ | ✓ | — † | — |
+| Printer model | ✓ | ✓ | — † | ✓ (`;TARGET_MACHINE.NAME:`) |
+
+† Bambu Studio `.3mf` exports are ZIP archives that do not embed print time, filament usage, filament type, temperatures, or printer model — those are generated at print time by the printer. A lightweight ZIP reader extracts `Metadata/plate_1.json` from `.3mf` archives for layer height.
 
 Cura outputs filament length in meters, not weight in grams, so `filament_used_g` is null unless the operator adds a `;weight: {filament_weight}` custom start gcode line.
 

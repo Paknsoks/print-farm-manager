@@ -1,9 +1,10 @@
 const fs = require('fs');
 
 // Read both the file head (first 4KB) and tail (last 50KB) to cover
-// slicers that put metadata in the header (Cura, Bambu Studio) and
-// footer (PrusaSlicer, OrcaSlicer). Only scans comment lines, matches
-// specific patterns, and exits early once all target fields are found.
+// slicers that put metadata in the header (Cura) and footer (PrusaSlicer,
+// OrcaSlicer). Only scans comment lines, matches specific patterns, and
+// exits early once all target fields are found. Bambu .3mf files are
+// handled separately by ../3mf-parser.js.
 
 const HEAD_BYTES = 4 * 1024;  // 4KB — sufficient for Cura/Bambu header blocks
 const TAIL_BYTES = 50 * 1024; // 50KB — sufficient for PrusaSlicer/Orca footer blocks
@@ -43,7 +44,6 @@ function parseTimeString(str) {
 
 /**
  * Scan comment lines against a pattern list, populating result and tracking found keys.
- * Returns the set of found keys.
  */
 function scanLines(lines, patterns, result, found) {
   for (const line of lines) {
@@ -60,9 +60,12 @@ function scanLines(lines, patterns, result, found) {
           result.filament_used_g = parseFloat(match[1]);
           break;
         case 'estimated_time_s': {
-          // Cura ;TIME: is bare seconds; Prusa/Orca is human-readable like "2h 30m"
-          const v = parseFloat(match[1]);
-          result.estimated_time_s = isNaN(v) ? parseTimeString(match[1]) : v;
+          const raw = match[1].trim();
+          if (/[hms]/i.test(raw)) {
+            result.estimated_time_s = parseTimeString(raw);
+          } else {
+            result.estimated_time_s = parseFloat(raw) || null;
+          }
           break;
         }
         case 'layer_height':
@@ -92,12 +95,6 @@ function scanLines(lines, patterns, result, found) {
 /**
  * Parse a gcode file and extract slicer metadata from comment lines.
  * Reads both file head (Cura/Bambu header metadata) and tail (PrusaSlicer/Orca footer metadata).
- * Tail patterns take priority over head patterns because they're richer.
- * @param {string} filePath - Absolute path to the gcode file
- * @returns {{ filament_used_g: number|null, estimated_time_s: number|null,
- *             layer_height: number|null, filament_type: string,
- *             nozzle_temp: number|null, bed_temp: number|null,
- *             printer_model: string }}
  */
 function parseGcodeFile(filePath) {
   const result = {
@@ -117,29 +114,25 @@ function parseGcodeFile(filePath) {
     const stats = fs.fstatSync(fd);
     const size = stats.size;
 
-    // Read head (first 4KB) — covers Cura header metadata
     if (size > 0) {
       const headLen = Math.min(size, HEAD_BYTES);
       const headBuf = Buffer.alloc(headLen);
       fs.readSync(fd, headBuf, 0, headLen, 0);
-      const headLines = headBuf.toString('utf-8').split('\n');
-      scanLines(headLines, HEAD_PATTERNS, result, found);
+      scanLines(headBuf.toString('utf-8').split('\n'), HEAD_PATTERNS, result, found);
     }
 
-    // Read tail (last 50KB) — covers PrusaSlicer/Orca footer metadata
     if (size > HEAD_BYTES) {
       const start = Math.max(0, size - TAIL_BYTES);
       const tailLen = size - start;
       const tailBuf = Buffer.alloc(tailLen);
       fs.readSync(fd, tailBuf, 0, tailLen, start);
-      const tailLines = tailBuf.toString('utf-8').split('\n');
-      scanLines(tailLines, TAIL_PATTERNS, result, found);
+      scanLines(tailBuf.toString('utf-8').split('\n'), TAIL_PATTERNS, result, found);
     }
   } catch (err) {
     console.error(`[gcode-parser] Error reading ${filePath}:`, err.message);
   } finally {
     if (fd !== undefined) {
-      try { fs.closeSync(fd); } catch (_) { /* ignore */ }
+      try { fs.closeSync(fd); } catch (_) {}
     }
   }
 

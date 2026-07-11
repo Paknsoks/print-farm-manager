@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const router = express.Router();
 const { parseGcodeFile } = require('../gcode-parser');
+const { parse3mfFile } = require('../3mf-parser');
 
 const GCODE_DIR = path.join(__dirname, '..', 'gcode');
 
@@ -189,7 +190,8 @@ module.exports = (db) => {
       return res.status(404).json({ error: 'G-code file not found on disk' });
     }
 
-    const meta = parseGcodeFile(fullPath);
+    const is3mf = gcode.filename && gcode.filename.toLowerCase().endsWith('.3mf');
+    const meta = is3mf ? parse3mfFile(fullPath) : parseGcodeFile(fullPath);
     res.json({
       est_print_secs: meta.estimated_time_s,
       material_grams: meta.filament_used_g,
