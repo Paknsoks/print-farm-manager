@@ -64,7 +64,9 @@ function parse3mfFile(filePath) {
     const compressed = buf.slice(jsonOffset, jsonOffset + compressedSize);
     let jsonStr;
     if (compressionMethod === 0) jsonStr = compressed.toString('utf-8');
-    else if (compressionMethod === 8) jsonStr = zlib.inflateRawSync(compressed).toString('utf-8');
+    else if (compressionMethod === 8) {
+        jsonStr = zlib.inflateRawSync(compressed, { maxOutputLength: MAX_COMPRESSED_ENTRY }).toString('utf-8');
+      }
     else return result;
 
     const json = JSON.parse(jsonStr);
