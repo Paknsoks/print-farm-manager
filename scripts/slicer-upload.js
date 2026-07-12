@@ -7,11 +7,18 @@
  *   Windows:  "C:\path\to\slicer-upload.bat"
  *   macOS:    node "/home/user/slicer-upload.js"
  *
+ * The script auto-detects the real export file using a priority chain:
+ *   1. --name flag (explicit override)
+ *   2. SLIC3R_PP_OUTPUT_NAME env var (OrcaSlicer 2.x / Creality Print — has correct filename)
+ *   3. CLI argument (PrusaSlicer / Cura pass the real .gcode path directly)
+ *   4. .pp metadata derivation (Bambu Studio / older OrcaSlicer — strips .pp to find temp gcode)
+ *
  * Flags:
  *   --server <url>    API base URL (default: http://localhost:3000, or PRINT_FARM_URL env var)
+ *   --name <name>     Display name override (e.g. "Widget v2.gcode")
  *   --open-browser    Launch the default browser to the Inbox page after upload
  *   --verbose, -v     Print detailed diagnostic output to stderr
- *   --log             Same as --verbose (.bat wrapper redirects stderr to a log file)
+ *   --log             Same as --verbose (.bat wrapper redirects stderr to file)
  *   --help, -h        Show this message
  */
 
@@ -25,6 +32,7 @@ const args = process.argv.slice(2);
 let openBrowser = false;
 let serverUrl = process.env.PRINT_FARM_URL || 'http://localhost:3000';
 let filePath = null;
+let customName = null;
 let showHelp = false;
 let verbose = false;
 
@@ -34,6 +42,9 @@ for (let i = 0; i < args.length; i++) {
     showHelp = true;
   } else if (arg === '--verbose' || arg === '-v' || arg === '--log') {
     verbose = true;
+  } else if (arg === '--name' && args[i + 1]) {
+    customName = args[i + 1];
+    i++;
   } else if (arg === '--open-browser') {
     openBrowser = true;
   } else if (arg === '--server' && args[i + 1]) {
@@ -51,17 +62,19 @@ Print Farm Manager — Slicer Upload Script
 
 Uploads a sliced file to the Print Farm Manager Inbox.
 
-USAGE
-  node slicer-upload.js [flags] <file-path>
+Automatically detects the real export file from:
+  • SLIC3R_PP_OUTPUT_NAME env var (OrcaSlicer / Creality Print)
+  • CLI argument (PrusaSlicer / Cura pass the actual file)
+  • .pp metadata derivation (Bambu Studio / older OrcaSlicer)
 
-  The slicer passes the file path automatically. Add to your
-  slicer's post-processing scripts field:
-    Windows:  "C:\\path\\to\\slicer-upload.bat"
-    macOS:    node slicer-upload.js
+Add to your slicer's post-processing scripts field:
+  Windows:  "C:\\path\\to\\slicer-upload.bat"
+  macOS:    node slicer-upload.js
 
 FLAGS
   --server <url>      Server base URL (default: http://localhost:3000)
-  --open-browser      Open the Inbox page in your default browser after upload
+  --name <filename>   Display name override
+  --open-browser      Open the Inbox page after upload
   --verbose, -v       Print detailed diagnostic output to stderr
   --log               Same as --verbose
   --help, -h          Show this message
@@ -76,96 +89,98 @@ function log(msg) {
 log(`Args:    ${JSON.stringify(process.argv.slice(2))}`);
 log(`Server:  ${serverUrl}`);
 
-if (!filePath) {
-  log('No file path — exiting');
-  console.error('Usage: node slicer-upload.js [flags] <file-path>');
-  process.exit(1);
-}
-
-filePath = path.resolve(filePath);
-log(`Resolved: ${filePath}`);
-
-if (!fs.existsSync(filePath)) {
-  log(`File not found — exiting`);
-  console.error(`File not found: ${filePath}`);
-  process.exit(1);
-}
-
-const fileName = path.basename(filePath);
-const ext = path.extname(fileName).toLowerCase();
-log(`Received: ${fileName}  (ext: ${ext})`);
-
 // --- Determine the real file to upload ---
-// Slicers may pass a .pp metadata file. Read it to find the actual export path.
-let uploadPath = filePath;
+let uploadPath = null;
+let displayName = null;
 
-if (ext === '.pp') {
-  log(`.pp metadata file — reading for export path...`);
-  try {
-    const ppContents = fs.readFileSync(filePath, 'utf8');
-    log(`.pp file size: ${ppContents.length} bytes`);
-    log(`.pp file content (first 4KB):\n${ppContents.slice(0, 4096)}`);
+// Strategy 1: --name flag (explicit override of display name)
+if (customName) {
+  log(`--name override: "${customName}"`);
+  displayName = customName;
+}
 
-    // Try to find the real gcode path in the .pp metadata
-    // Common patterns: file_path=..., output_path=..., gcode_file=..., etc.
-    // Also try: any line that references a .gcode/.bgcode/.3mf file
-    const exportMatch = ppContents.match(
-      /(?:file_path|output_path|gcode_file|export_path|gcode_path|output_file|export_file|original_path|source_path|final_path)\s*[=:]\s*(.+?\.(?:gcode|bgcode|3mf))/gi
-    );
-    if (exportMatch) {
-      log(`Found export path references in .pp: ${JSON.stringify(exportMatch)}`);
-      for (const m of exportMatch) {
-        const p = m.replace(/^.*?[=:]\s*/i, '').trim();
-        if (fs.existsSync(p)) {
-          uploadPath = path.resolve(p);
-          log(`Resolved export file: ${uploadPath}`);
-          break;
-        }
-      }
+// Strategy 2: SLIC3R_PP_OUTPUT_NAME env var (OrcaSlicer 2.x, Creality Print)
+// These slicers set this to the real export path with the correct filename.
+// Bambu Studio also sets it, but points to a temp hash file — we skip those.
+const outputEnv = process.env.SLIC3R_PP_OUTPUT_NAME;
+if (outputEnv) {
+  const resolved = path.resolve(outputEnv);
+  log(`SLIC3R_PP_OUTPUT_NAME: ${resolved}`);
+  if (fs.existsSync(resolved)) {
+    const envName = path.basename(resolved);
+    // Skip temp hash files from Bambu Studio (e.g. ".33556.0.gcode")
+    if (!envName.match(/^\.?\d+\.\d+\./)) {
+      uploadPath = resolved;
+      if (!displayName) displayName = envName;
+      log(`Using SLIC3R_PP_OUTPUT_NAME file: ${uploadPath}`);
+    } else {
+      log(`SLIC3R_PP_OUTPUT_NAME is a temp file — ignoring`);
     }
-
-    // Also look for any absolute path containing .gcode/.bgcode/.3mf
-    if (uploadPath === filePath) {
-      const anyPath = ppContents.match(/[A-Za-z]:\\(?:[^\\\r\n]+\\)*[^\s\r\n]+\.(?:gcode|bgcode|3mf)/g);
-      if (anyPath) {
-        log(`Found absolute gcode paths in .pp: ${JSON.stringify(anyPath)}`);
-        for (const p of anyPath) {
-          if (fs.existsSync(p)) {
-            uploadPath = path.resolve(p);
-            log(`Resolved export file (absolute): ${uploadPath}`);
-            break;
-          }
-        }
-      }
-    }
-
-    // Fallback: derive temp gcode from .pp path
-    if (uploadPath === filePath) {
-      const derived = filePath.replace(/\.pp$/i, '');
-      if (fs.existsSync(derived)) {
-        uploadPath = derived;
-        log(`Falling back to temp gcode: ${uploadPath}`);
-      } else {
-        log(`No usable file found — skipping`);
-        process.exit(0);
-      }
-    }
-  } catch (err) {
-    log(`Error reading .pp file: ${err.message}`);
-    process.exit(1);
+  } else {
+    log(`SLIC3R_PP_OUTPUT_NAME file not found: ${resolved}`);
   }
 }
 
-// Validate final file
-const uploadExt = path.extname(uploadPath).toLowerCase();
-if (uploadExt !== '.gcode' && uploadExt !== '.bgcode' && uploadExt !== '.3mf') {
-  log(`Unsupported extension "${uploadExt}" — skipping`);
-  process.exit(0);
+// Strategy 3: CLI argument (PrusaSlicer, Cura — pass the real file directly)
+if (!uploadPath && filePath) {
+  filePath = path.resolve(filePath);
+  log(`CLI arg:  ${filePath}`);
+  if (fs.existsSync(filePath)) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.gcode' || ext === '.bgcode' || ext === '.3mf') {
+      uploadPath = filePath;
+      if (!displayName) displayName = path.basename(filePath);
+      log(`Using CLI arg file: ${uploadPath}`);
+    }
+  } else {
+    log(`CLI arg file not found: ${filePath}`);
+  }
 }
 
-const uploadFileName = path.basename(uploadPath);
+// Strategy 4: .pp metadata derivation (Bambu Studio, older OrcaSlicer)
+// Strips .pp from the CLI arg to find the temp gcode next to it.
+if (!uploadPath && filePath && path.extname(filePath).toLowerCase() === '.pp') {
+  filePath = path.resolve(filePath);
+  const derived = filePath.replace(/\.pp$/i, '');
+  log(`.pp derivation: ${derived}`);
+  if (fs.existsSync(derived)) {
+    uploadPath = derived;
+    if (!displayName) displayName = path.basename(derived);
+    log(`Using derived temp gcode: ${uploadPath}`);
+  } else {
+    log(`Derived file not found — scanning directory...`);
+    const dir = path.dirname(filePath);
+    try {
+      for (const f of fs.readdirSync(dir)) {
+        const e = path.extname(f).toLowerCase();
+        if (e === '.gcode' || e === '.bgcode' || e === '.3mf') {
+          uploadPath = path.join(dir, f);
+          if (!displayName) displayName = f;
+          log(`Found sibling: ${uploadPath}`);
+          break;
+        }
+      }
+    } catch (_) {}
+  }
+}
+
+// --- Validate ---
+if (!uploadPath) {
+  log('No usable file found — exiting');
+  if (outputEnv || filePath) {
+    log('Dumping slicer env vars for debugging:');
+    for (const [k, v] of Object.entries(process.env)) {
+      const ku = k.toUpperCase();
+      if (ku.includes('SLIC3R') || ku.includes('CURA') || ku.includes('BAMBU') || ku.includes('CREALITY') || ku.includes('PP_')) {
+        log(`  ${k}=${v}`);
+      }
+    }
+  }
+  process.exit(1);
+}
+
 const fileSize = fs.statSync(uploadPath).size;
-log(`Upload:  ${uploadFileName}  (${fileSize} bytes)`);
+log(`Upload:  ${displayName}  (${fileSize} bytes)`);
 
 // --- Upload ---
 const apiUrl = serverUrl.replace(/\/+$/, '') + '/api/inbox';
@@ -173,12 +188,11 @@ const apiUrl = serverUrl.replace(/\/+$/, '') + '/api/inbox';
 async function doUpload() {
   try {
     const fileBuffer = fs.readFileSync(uploadPath);
-    const blob = new Blob([fileBuffer]);
     const formData = new FormData();
-    formData.append('file', blob, uploadFileName);
+    formData.append('file', new Blob([fileBuffer]), displayName);
 
-    log(`POST ${apiUrl}  (${fileBuffer.length} bytes as "${uploadFileName}")`);
-    console.log(`Uploading "${uploadFileName}" ...`);
+    log(`POST ${apiUrl}`);
+    console.log(`Uploading "${displayName}" ...`);
 
     const response = await fetch(apiUrl, { method: 'POST', body: formData });
 
@@ -198,8 +212,7 @@ async function doUpload() {
     log(`SUCCESS — inbox ID ${result.id}`);
 
     if (openBrowser) {
-      const inboxUrl = serverUrl.replace(/\/+$/, '') + '/inbox';
-      log(`Opening browser: ${inboxUrl}`);
+      const inboxUrl = serverUrl.replace(/\/+$/, '') + '/projects';
       const platform = process.platform;
       const cmd = platform === 'win32'
         ? `start "" "${inboxUrl}"`

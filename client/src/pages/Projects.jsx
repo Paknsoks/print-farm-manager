@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useToast } from '../useToast';
 import EmptyState from '../components/EmptyState';
 import { useConfirm } from '../useConfirm';
+import { UnassignedFiles } from './Inbox';
 
 // ── Estimate helpers ──────────────────────────────────────────────────────────
 
@@ -1207,6 +1208,8 @@ export default function Projects() {
       <div>
         {toastEl}
         {confirmModal}
+
+        <UnassignedFiles onAssigned={() => {}} />
 
         {/* ── Duplicate project modal ── */}
         {dupModal && createPortal(

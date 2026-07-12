@@ -1,138 +1,115 @@
 # Slicer Integration — Inbox Workflow
 
-The Post-Processing Script (`scripts/slicer-upload.js`) lets your slicer automatically send each exported G-code file to Print Farm Manager's Inbox, where it can be reviewed and assigned to a project.
+The Post-Processing Script (`scripts/slicer-upload.js`) lets your slicer automatically send each exported G-code file to Print Farm Manager's Inbox.
+
+## Per-Slicer Quick Reference
+
+| Slicer | Post-processing field | Filename correct? |
+|---|---|---|
+| **OrcaSlicer 2.x** | `"C:\path\to\slicer-upload.bat"` | ✅ Yes (auto-detected) |
+| **Creality Print** | `"C:\path\to\slicer-upload.bat"` | ✅ Yes (auto-detected) |
+| **PrusaSlicer** | `"C:\path\to\slicer-upload.bat"` | ✅ Yes (auto-detected) |
+| **Bambu Studio** | `"C:\path\to\slicer-upload.bat" --name "Model Name.gcode"` | ⚠️ Needs `--name` flag |
+| **Cura** | Not supported | — |
+
+---
 
 ## Setup
 
 ### 1. Prerequisites
 
 - Print Farm Manager server must be running (`npm start` or Docker)
-- Node.js installed on the slicing workstation (the script runs with `node`)
+- Node.js installed on the slicing workstation
 
-### 2. Add the Script to Your Slicer
+### 2. Add to Your Slicer
 
-> **Important:** The slicer's post-processing field expects a path to an executable file — it does not run commands through a shell. On Windows, use the `.bat` wrapper or the full path to `node.exe`. On macOS/Linux, the `node` prefix works directly since those slicers invoke a shell.
+> **Important:** On Windows, use the `.bat` wrapper path directly — these slicers expect an executable file, not a shell command.
 
-#### Windows (OrcaSlicer / PrusaSlicer / Bambu Studio)
+#### OrcaSlicer / Creality Print
 
-**Method A: .bat wrapper (recommended)**
+Both set the `SLIC3R_PP_OUTPUT_NAME` environment variable to the real export path, so the correct filename is automatic.
 
-A `slicer-upload.bat` is included next to the script. It calls `node` using `%~dp0` so it works regardless of where Node is installed. Add this to the post-processing field:
-
+Post-processing field (Print Settings → Output):
 ```
-"C:\path\to\print-farm-manager\scripts\slicer-upload.bat"
+"C:\Users\aleksanderp\Documents\GitHub\print-farm-manager\scripts\slicer-upload.bat"
 ```
 
 To also open the browser to the Inbox after each slice:
 ```
-"C:\path\to\print-farm-manager\scripts\slicer-upload.bat" --open-browser
+"C:\Users\aleksanderp\Documents\GitHub\print-farm-manager\scripts\slicer-upload.bat" --open-browser
 ```
 
-**Method B: Full path to node.exe**
+#### PrusaSlicer
 
-Find your Node path first — open Command Prompt and run:
-```
-where node
-```
+PrusaSlicer passes the actual `.gcode` file path as a command line argument, so the filename is automatic.
 
-You'll get something like `C:\Program Files\nodejs\node.exe`. Then add:
+Post-processing field (Print Settings → Output options):
 ```
-"C:\Program Files\nodejs\node.exe" "C:\path\to\print-farm-manager\scripts\slicer-upload.js"
+"C:\Users\aleksanderp\Documents\GitHub\print-farm-manager\scripts\slicer-upload.bat"
 ```
 
-#### macOS / Linux
+#### Bambu Studio
 
-These slicers invoke a shell, so the `node` prefix works:
+Bambu Studio only provides temp hash filenames (e.g. `.33556.0.gcode`). You must add the `--name` flag with the desired display name:
 
 ```
-node "/home/user/print-farm-manager/scripts/slicer-upload.js"
+"C:\Users\aleksanderp\Documents\GitHub\print-farm-manager\scripts\slicer-upload.bat" --name "Widget v2.gcode"
 ```
 
-**Do not add the file path yourself** — the slicer automatically appends the exported file path as the last argument when it runs the command.
+Change the name when you switch projects. The actual gcode content uploads correctly regardless — only the display name in the Inbox needs this flag.
+
+#### Cura
+
+Cura's post-processing system uses Python-based plugins and does not support external shell scripts. Cura is not supported for automatic inbox uploads. Export the gcode manually and use a separate upload method, or switch to OrcaSlicer/PrusaSlicer for full integration.
 
 ---
 
-### 3. Remote Slicing Workstation (slicer on a different PC than the server)
+## Remote Slicing Workstation
 
-If Print Farm Manager runs on a dedicated machine (e.g. `192.168.1.50`) and you slice from your desktop, configure the server URL once:
+If Print Farm Manager runs on a different machine (e.g. `192.168.1.50`), set the server URL:
 
-#### Method A: Environment variable (set once, works forever — recommended)
+**Method A: Environment variable (set once, works forever — recommended)**
 
-**Windows:**
+Windows:
 ```
 setx PRINT_FARM_URL "http://192.168.1.50:3000"
 ```
 
-**macOS/Linux** (add to `~/.zshrc` or `~/.bashrc`):
+macOS/Linux (add to `~/.zshrc` or `~/.bashrc`):
 ```
 export PRINT_FARM_URL="http://192.168.1.50:3000"
 ```
 
-Then your slicer field stays simple — no need to mention the IP. Restart the slicer after setting the env var for the first time.
+Then your slicer field stays simple. Restart the slicer after setting the env var for the first time.
 
-#### Method B: Per-slicer flag
-
-Put the server URL directly in the post-processing command. On Windows with the `.bat` wrapper:
+**Method B: Per-slicer flag**
 ```
 "C:\path\to\slicer-upload.bat" --server http://192.168.1.50:3000
 ```
-
-On macOS/Linux:
-```
-node slicer-upload.js --server http://192.168.1.50:3000
-```
-
-#### Verification
-
-After slicing, you should see:
-```
-Uploading "4x Widget v2_0.4n_0.20mm_PLA_MK4S_5h11m.bgcode" to http://192.168.1.50:3000/api/inbox …
-Uploaded successfully — inbox ID 3
-```
-
-If you get `Cannot reach Print Farm Manager — is the server running?`, the script will tell you how to set the server URL right in the error message.
-
-### 4. Verify (localhost setup)
-
-After slicing, look for the output in the slicer's console/log:
-
-```
-Uploading "4x Widget v2_0.4n_0.20mm_PLA_MK4S_5h11m.bgcode" to http://localhost:3000/api/inbox …
-Uploaded successfully — inbox ID 3
-```
-
-Then open Print Farm Manager → **Inbox** — the file should appear with parsed hints (model, parts-per-plate, print time, etc.).
-
----
-
-## Workflow
-
-1. **Slice** in your slicer → script uploads to Inbox
-2. Open Print Farm Manager → **Inbox** tab
-3. Click **Assign to Project** on a file
-4. Choose **New Part** or **Replace Existing Part**
-5. Fill out the part details (name, target quantity, printer model)
-6. The file is moved from the Inbox to the project as a part + G-code record
-7. The scheduler picks it up and dispatches to available printers
-
-You can also **Delete** files from the Inbox that were uploaded by mistake — the file is removed from disk.
 
 ---
 
 ## Filename Convention
 
-The script parses filenames using the same parser as the G-code upload form. For the best experience, slice with filenames that follow the Bambu/Orca convention:
+When the filename follows the Bambu/Orca convention, the Inbox shows parsed hints (model, parts per plate, print time, material):
 
-```
-{parts_per_plate}x {part_name}_{nozzle}_{layer_height}_{material}_{printer_model}_{time}.{ext}
-```
-
-Example:
 ```
 4x Widget v2_0.4n_0.20mm_PLA_MK4S_5h11m.bgcode
 ```
 
-When the parser recognizes this pattern, the Inbox shows **Hints** chips (parts/plate, model, time, material) and the Assign form is pre-filled.
+The parser is read from the uploaded filename — so it works when the filename is auto-detected (OrcaSlicer, Creality Print, PrusaSlicer) and when you use `--name` (Bambu Studio).
+
+---
+
+## Diagnostic Logging
+
+If something goes wrong, add `--log` to capture detailed output:
+
+```
+"C:\path\to\slicer-upload.bat" --log
+```
+
+This writes `scripts\slicer-upload.log` with every decision the script makes. Check this file for errors.
 
 ---
 
@@ -140,8 +117,9 @@ When the parser recognizes this pattern, the Inbox shows **Hints** chips (parts/
 
 | Symptom | Fix |
 |---|---|
-| "Cannot reach Print Farm Manager" | Server not running, wrong port, or firewall blocking. Verify `http://localhost:3000/api/health` responds. |
-| "Unsupported file type" | Only `.gcode`, `.bgcode`, and `.3mf` files are accepted. |
-| No output in slicer console | The script writes to stderr/stdout. Some slicers suppress post-processing output — check the OS task manager for a `node` process during slicing. |
-| Upload succeeds but file doesn't appear in Inbox | Refresh the Inbox page. If still missing, the upload may have been rejected at the API level — check the server console for errors. |
-| Inbox shows "—" for hints | The filename doesn't match the convention. This is cosmetic — the file still uploads and can be assigned manually. |
+| `Cannot reach Print Farm Manager` | Server not running. Verify `http://localhost:3000/api/health` responds. |
+| 404 Not Found | Server was started before the Inbox feature was added. Restart the server (`Ctrl+C` then `npm run dev` or `npm start`). |
+| `Unsupported file type` | Only `.gcode`, `.bgcode`, and `.3mf` files are accepted. |
+| Wrong filename in Inbox (Bambu Studio) | Add `--name "Model Name.gcode"` to your post-processing field. |
+| Inbox shows `—` for hints | The filename doesn't match the convention. Cosmetic — the file still uploads. |
+| Cura not working | Cura does not support external post-processing scripts. Export manually. |

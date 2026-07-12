@@ -85,7 +85,7 @@ function formatTime(secs) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export default function Inbox() {
+export function UnassignedFiles({ onAssigned }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showToast, toastEl] = useToast();
@@ -269,25 +269,18 @@ export default function Inbox() {
       <div style={STYLE.card}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
           <div>
-            <h1 style={STYLE.title}>Inbox</h1>
-            <p style={STYLE.subtitle}>Files dropped by the slicer post-processing script — assign them to projects here.</p>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, margin: 0 }}>
+              Unassigned Files
+            </h3>
           </div>
-          {items.length > 0 && (
-            <button style={STYLE.btn} onClick={loadItems}>
-              <span aria-hidden="true">↻</span> Refresh
-            </button>
-          )}
+          <button style={STYLE.btn} onClick={loadItems}>
+            <span aria-hidden="true">↻</span> Refresh
+          </button>
         </div>
 
         {items.length === 0 ? (
-          <div style={STYLE.empty}>
-            <div style={{ fontSize: 18, marginBottom: 8 }}>📥</div>
-            <div>No files in the inbox yet.</div>
-            <div style={{ fontSize: 12, marginTop: 6 }}>
-              Drop a .gcode or .3mf file into{' '}
-              <code style={{ background: '#131720', padding: '1px 5px', borderRadius: 4 }}>server/gcode/</code>,
-              or use the slicer post-processing script.
-            </div>
+          <div style={{ padding: '8px 0', color: '#475569', fontSize: 13 }}>
+            No unassigned files. Files from the slicer post-processing script will appear here.
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>

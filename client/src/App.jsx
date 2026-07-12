@@ -8,16 +8,14 @@ import Projects from './pages/Projects';
 import Jobs from './pages/Jobs';
 import Settings from './pages/Settings';
 import Decommissioned from './pages/Decommissioned';
-import Inbox from './pages/Inbox';
 
 const NAV_ITEMS = [
   { to: '/',               label: 'Dashboard' },
   { to: '/fleet',          label: 'Fleet' },
   { to: '/printers',       label: 'Printers',      end: true },
-  { to: '/projects',       label: 'Projects' },
+  { to: '/projects',       label: 'Projects',      badge: true },
   { to: '/jobs',           label: 'Jobs' },
   { to: '/decommissioned', label: 'Decommissioned' },
-  { to: '/inbox',          label: 'Inbox' },
   { to: '/settings',       label: 'Settings' },
 ];
 
@@ -37,17 +35,30 @@ const navLinkStyle = ({ isActive }) => ({
 export default function App() {
   // Operator-configurable farm name (Settings → Farm Name)
   const [farmName, setFarmName] = useState('Print Farm');
+  const [inboxCount, setInboxCount] = useState(0);
+
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
       .then(data => { if (data.farm_name) setFarmName(data.farm_name); })
       .catch(() => {});
 
-    // Settings page dispatches this on save so the sidebar/topbar update live,
-    // without needing a full page refresh.
     const onFarmNameChanged = (e) => setFarmName(e.detail);
     window.addEventListener('farmNameChanged', onFarmNameChanged);
     return () => window.removeEventListener('farmNameChanged', onFarmNameChanged);
+  }, []);
+
+  // Poll inbox count every 10s for the Projects badge
+  useEffect(() => {
+    function poll() {
+      fetch('/api/inbox')
+        .then(r => r.json())
+        .then(data => setInboxCount(Array.isArray(data) ? data.length : 0))
+        .catch(() => {});
+    }
+    poll();
+    const id = setInterval(poll, 10000);
+    return () => clearInterval(id);
   }, []);
 
   return (
@@ -76,6 +87,13 @@ export default function App() {
           {NAV_ITEMS.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === '/' || !!item.end} style={navLinkStyle}>
               {item.label}
+              {item.badge && inboxCount > 0 && (
+                <span style={{
+                  marginLeft: 6, background: '#1e40af', color: '#fff',
+                  fontSize: 11, fontWeight: 700, padding: '1px 7px',
+                  borderRadius: 10, display: 'inline-block',
+                }}>{inboxCount}</span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -113,7 +131,6 @@ export default function App() {
             <Route path="/projects"        element={<Projects />} />
             <Route path="/jobs"            element={<Jobs />} />
             <Route path="/decommissioned"  element={<Decommissioned />} />
-            <Route path="/inbox"           element={<Inbox />} />
             <Route path="/settings"        element={<Settings />} />
           </Routes>
         </main>
