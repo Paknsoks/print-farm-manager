@@ -13,6 +13,9 @@ function readU16(buf, offset) { return buf.readUInt16LE(offset); }
  * Parse a .3mf (ZIP archive) and extract metadata from Metadata/plate_1.json.
  * Returns { layer_height: number|null } — other fields always null.
  */
+const MAX_FILE_SIZE = 50 * 1024 * 1024;       // 50 MB — .3mf slice projects are rarely larger
+const MAX_COMPRESSED_ENTRY = 10 * 1024 * 1024; // 10 MB — plate_1.json is a few KB
+
 function parse3mfFile(filePath) {
   const result = { layer_height: null };
 
@@ -20,6 +23,10 @@ function parse3mfFile(filePath) {
   try {
     fd = fs.openSync(filePath, 'r');
     const stats = fs.fstatSync(fd);
+    if (stats.size > MAX_FILE_SIZE) {
+      console.warn(`[3mf-parser] Skipping ${filePath}: ${stats.size} bytes exceeds ${MAX_FILE_SIZE} byte limit`);
+      return result;
+    }
     const buf = Buffer.alloc(stats.size);
     fs.readSync(fd, buf, 0, stats.size, 0);
 

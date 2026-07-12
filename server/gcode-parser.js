@@ -2,9 +2,9 @@ const fs = require('fs');
 
 // Read both the file head (first 4KB) and tail (last 50KB) to cover
 // slicers that put metadata in the header (Cura) and footer (PrusaSlicer,
-// OrcaSlicer). Only scans comment lines, matches specific patterns, and
-// exits early once all target fields are found. Bambu .3mf files are
-// handled separately by ../3mf-parser.js.
+// OrcaSlicer). The head buffer is scanned with both head and tail patterns
+// so metadata is found regardless of where the slicer places it. Bambu
+// .3mf files are handled separately by ../3mf-parser.js.
 
 const HEAD_BYTES = 4 * 1024;  // 4KB — sufficient for Cura/Bambu header blocks
 const TAIL_BYTES = 50 * 1024; // 50KB — sufficient for PrusaSlicer/Orca footer blocks
@@ -29,13 +29,15 @@ const HEAD_PATTERNS = [
 ];
 
 /**
- * Parse a human-readable time string like "2h 30m 15s" or "1h 5m" into seconds.
+ * Parse a human-readable time string like "2h 30m 15s" or "1d 2h" into seconds.
  */
 function parseTimeString(str) {
   let total = 0;
+  const d = str.match(/(\d+)\s*d(?:ays?)?/i);
   const h = str.match(/(\d+)\s*h/i);
   const m = str.match(/(\d+)\s*m/i);
   const s = str.match(/(\d+)\s*s/i);
+  if (d) total += parseInt(d[1], 10) * 86400;
   if (h) total += parseInt(h[1], 10) * 3600;
   if (m) total += parseInt(m[1], 10) * 60;
   if (s) total += parseInt(s[1], 10);
@@ -61,7 +63,7 @@ function scanLines(lines, patterns, result, found) {
           break;
         case 'estimated_time_s': {
           const raw = match[1].trim();
-          if (/[hms]/i.test(raw)) {
+          if (/[dhms]/i.test(raw)) {
             result.estimated_time_s = parseTimeString(raw);
           } else {
             result.estimated_time_s = parseFloat(raw) || null;
@@ -94,7 +96,9 @@ function scanLines(lines, patterns, result, found) {
 
 /**
  * Parse a gcode file and extract slicer metadata from comment lines.
- * Reads both file head (Cura/Bambu header metadata) and tail (PrusaSlicer/Orca footer metadata).
+ * Scans the head (first 4KB) with both head and tail patterns to catch
+ * metadata regardless of which slicer produced it, then scans the tail
+ * (last 50KB) for footer-format patterns from PrusaSlicer/Orca.
  */
 function parseGcodeFile(filePath) {
   const result = {
@@ -119,6 +123,7 @@ function parseGcodeFile(filePath) {
       const headBuf = Buffer.alloc(headLen);
       fs.readSync(fd, headBuf, 0, headLen, 0);
       scanLines(headBuf.toString('utf-8').split('\n'), HEAD_PATTERNS, result, found);
+      scanLines(headBuf.toString('utf-8').split('\n'), TAIL_PATTERNS, result, found);
     }
 
     if (size > HEAD_BYTES) {

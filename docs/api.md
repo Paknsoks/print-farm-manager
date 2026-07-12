@@ -323,9 +323,9 @@ Create multiple parts with G-code files at once. `Content-Type: multipart/form-d
 **Form fields:**
 - `project_id` (required)
 - `files` — multiple gcode files (field name `files`, array upload, max 200)
-- `overrides` — JSON array of per-file overrides: `[{"fn":"part_A.gcode","name":"Front Bracket","quantity":1,"parts_per_plate":1,"printer_model":"mk4s"}, ...]`
+- `overrides` — JSON array of per-file overrides in the same order as the `files` array: `[{"fn":"part_A.gcode","name":"Front Bracket","quantity":1,"parts_per_plate":1,"printer_model":"mk4s","ams_slot":"-1","allowed_groups":"MK4S Farm,XL Farm","required_material":"PLA","required_color":"Black"}, ...]`. Overrides are matched to files by position (index), not by `fn` — this avoids collisions when two files share the same basename.
 
-Each file is parsed for print time and filament usage from gcode content metadata. Override fields take priority over parsed metadata. Creates a `parts` row and a `gcodes` row per file in a single transaction (all-or-nothing).
+Each file is parsed for print time and filament usage from gcode content metadata (including day components like `1d 2h 30m` for long prints). Small files up to 4KB are scanned with both head and tail patterns. Override fields take priority over parsed metadata. `quantity` and `parts_per_plate` must be positive integers (> 0) — the server validates these before opening the transaction. Creates a `parts` row and a `gcodes` row per file in a single transaction (all-or-nothing). Individual file size limit is 100MB.
 
 **Response:**
 ```json

@@ -16,13 +16,16 @@ export default function BulkImportPanel({ projectId, onImported }) {
   const [allColors, setAllColors] = useState([]);
   const [bulkMaterial, setBulkMaterial] = useState('');
   const [bulkColor, setBulkColor] = useState('');
-  const [bulkGroups, setBulkGroups] = useState([]);
+  const [bulkGroups, setBulkGroups] = useState('');
   const [availableGroups, setAvailableGroups] = useState([]);
   const fileRef = useRef(null);
 
   useEffect(() => {
     fetch('/api/printers').then(r => r.json())
-      .then(ps => setModels([...new Set(ps.filter(p => p.model).map(p => p.model))]))
+      .then(ps => {
+        setModels([...new Set(ps.filter(p => p.model).map(p => p.model))]);
+        setAvailableGroups([...new Set(ps.filter(p => p.group_name).map(p => p.group_name))]);
+      })
       .catch(() => {});
     fetch('/api/filaments/types').then(r => r.json()).then(setFilamentTypes).catch(() => {});
     fetch('/api/filaments/colors').then(r => r.json()).then(setAllColors).catch(() => {});
@@ -32,7 +35,7 @@ export default function BulkImportPanel({ projectId, onImported }) {
     const sel = Array.from(e.target.files || []);
     if (!sel.length) return;
     setError(null);
-    setItems(p => [...p, ...sel.map(f => ({ file: f, name: partName(f.name), qty: 1, ppp: 1, model: '', fn: f.name, amsSlot: '', groups: [], material: '', color: '' }))]);
+    setItems(p => [...p, ...sel.map(f => ({ file: f, name: partName(f.name), qty: 1, ppp: 1, model: '', fn: f.name, amsSlot: '', groups: '', material: '', color: '' }))]);
     setFiles(p => [...p, ...sel]);
     fileRef.current.value = '';
   }
@@ -48,7 +51,7 @@ export default function BulkImportPanel({ projectId, onImported }) {
     fd.append('project_id', String(projectId));
     const overrides = items.map(it => ({
       fn: it.fn, name: it.name, quantity: it.qty, parts_per_plate: it.ppp, printer_model: it.model,
-      ams_slot: it.amsSlot || '', allowed_groups: it.groups.length ? JSON.stringify(it.groups) : '',
+      ams_slot: it.amsSlot || '', allowed_groups: it.groups.trim() || bulkGroups.trim() || '',
       required_material: it.material || bulkMaterial || '', required_color: it.color || bulkColor || '',
     }));
     fd.append('overrides', JSON.stringify(overrides));
@@ -60,7 +63,6 @@ export default function BulkImportPanel({ projectId, onImported }) {
       try {
         data = JSON.parse(raw);
       } catch (_) {
-        // Server returned unexpected content (e.g., HTML error page from an uncaught exception)
         const snippet = raw.length > 300 ? raw.slice(0, 300) + '…' : raw;
         setError(`Server error (${res.status}): ${snippet}`);
         return;
@@ -98,12 +100,12 @@ export default function BulkImportPanel({ projectId, onImported }) {
           {models.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Model</span><select onChange={e => e.target.value && bulk('model', e.target.value)} style={{ ...sx.i, width: 100, fontSize: 11 }}><option value="">Set all…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select></>}
         </div>
       )}
-      {/* Targeting (bulk) — material, color, groups */}
-      {items.length > 0 && (filamentTypes.length > 0 || availableGroups.length > 0) && (
+      {items.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #2d3748' }}>
           <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting (all rows):</span>
           {filamentTypes.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Material</span><select value={bulkMaterial} onChange={e => { setBulkMaterial(e.target.value); setBulkColor(''); }} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">— any —</option>{filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}</select></>}
           {colorOptions.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Color</span><select value={bulkColor} onChange={e => setBulkColor(e.target.value)} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">— any —</option>{colorOptions.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></>}
+          {availableGroups.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Groups</span><input type="text" value={bulkGroups} onChange={e => setBulkGroups(e.target.value)} placeholder="comma-separated" list="bulk-group-list" style={{ ...sx.i, width: 160, fontSize: 11 }} /><datalist id="bulk-group-list">{availableGroups.map(g => <option key={g} value={g} />)}</datalist></>}
           <span style={{ fontSize: 11, color: '#64748b' }}>AMS Slot</span><select onChange={e => e.target.value && bulk('amsSlot', e.target.value)} style={{ ...sx.i, width: 130, fontSize: 11 }}><option value="">— use printer default —</option><option value="-1">External Spool</option><option value="0">AMS Slot 1</option><option value="1">AMS Slot 2</option><option value="2">AMS Slot 3</option><option value="3">AMS Slot 4</option></select>
         </div>
       )}
@@ -125,14 +127,14 @@ export default function BulkImportPanel({ projectId, onImported }) {
                   ? <select value={it.model} onChange={e => upd(idx, 'model', e.target.value)} style={{ ...sx.i, width: 90, fontSize: 11 }}><option value="">Select…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select>
                   : <input value={it.model} onChange={e => upd(idx, 'model', e.target.value)} placeholder="e.g. mk4s" style={{ ...sx.i, width: 90, fontSize: 11 }} />}
                 </td>
-                <td style={{ padding: '4px 4px' }}><button onClick={() => rm(idx)} title="Remove" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: 14, padding: '0 4px', lineHeight: 1 }}>×</button></td>
+                <td style={{ padding: '4px 4px' }}><button onClick={() => rm(idx)} title="Remove" aria-label="Remove file" style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '4px 6px', fontSize: 18, lineHeight: 1, flexShrink: 0 }}>×</button></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
       )}
       {error && <p style={{ color: '#f87171', fontSize: 12, margin: '10px 0 0' }}>{error}</p>}
-      <p style={{ margin: '12px 0 0', fontSize: 11, color: '#475569' }}>G-code files are parsed for print time, filament usage, and filament type automatically. Use the targeting bar to set material, color, and AMS slot for all rows. Part names default to the filename.</p>
+      <p style={{ margin: '12px 0 0', fontSize: 11, color: '#475569' }}>G-code files are parsed for print time, filament usage, and filament type automatically. Use the targeting bar to set material, color, groups, and AMS slot for all rows. Part names default to the filename.</p>
     </div>
   );
 }

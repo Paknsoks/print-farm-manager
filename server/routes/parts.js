@@ -12,11 +12,15 @@ const { parse3mfFile } = require('../3mf-parser');
 if (!fs.existsSync(GCODE_DIR)) {
   fs.mkdirSync(GCODE_DIR, { recursive: true });
 }
+const crypto = require('crypto');
 const bulkStorage = multer.diskStorage({
   destination: GCODE_DIR,
-  filename: (_req, file, cb) => cb(null, Date.now() + '_' + file.originalname),
+  filename: (_req, file, cb) => cb(null, Date.now() + '_' + crypto.randomBytes(4).toString('hex') + '_' + file.originalname),
 });
-const bulkUpload = multer({ storage: bulkStorage });
+const bulkUpload = multer({
+  storage: bulkStorage,
+  limits: { fileSize: 100 * 1024 * 1024, files: 200 }, // 100 MB per file, 200 files max
+});
 
 module.exports = (db) => {
   const ACTIVE_QTY_SQL = `
@@ -278,12 +282,14 @@ module.exports = (db) => {
       return res.status(400).json({ error: 'At least one gcode file is required' });
     }
 
-    // Parse per-file overrides: map filename → { name, quantity, parts_per_plate, printer_model }
-    let overrideMap = {};
+    // Parse per-file overrides as a positional array — index N maps to files[N].
+    // Using index avoids collisions when two files share the same basename.
+    let overridesArr = [];
     try {
-      const arr = overrides ? JSON.parse(overrides) : [];
-      for (const o of arr) {
-        overrideMap[o.fn] = o;
+      overridesArr = overrides ? JSON.parse(overrides) : [];
+      if (!Array.isArray(overridesArr)) {
+        cleanupFiles();
+        return res.status(400).json({ error: 'overrides must be a JSON array' });
       }
     } catch (_) {
       cleanupFiles();
@@ -299,14 +305,26 @@ module.exports = (db) => {
 
     try {
       db.transaction(() => {
-        for (const file of files) {
-          const ov = overrideMap[file.originalname] || {};
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const ov = overridesArr[i] || {};
 
           // Part name: override > fallback from filename
           const ext = path.extname(file.originalname);
           const baseName = path.basename(file.originalname, ext);
           const fallbackName = baseName.replace(/[_-]/g, ' ').replace(/\s+/g, ' ').trim() || 'Imported Part';
           const partName = ov.name || fallbackName;
+
+          // Validate quantity and parts_per_plate server-side (truthy check
+          // allows "0" and "-1" through — parseInt catches non-positive values).
+          const parsedQty = parseInt(ov.quantity || 1, 10);
+          const parsedPpp = parseInt(ov.parts_per_plate || 1, 10);
+          if (!Number.isFinite(parsedQty) || parsedQty <= 0) {
+            throw new Error(`Invalid quantity "${ov.quantity || 1}" for "${file.originalname}" — must be a positive integer`);
+          }
+          if (!Number.isFinite(parsedPpp) || parsedPpp <= 0) {
+            throw new Error(`Invalid parts per plate "${ov.parts_per_plate || 1}" for "${file.originalname}" — must be a positive integer`);
+          }
 
           // Parse file content for metadata — .3mf uses ZIP reader, others use gcode scanner
           const is3mf = file.originalname.toLowerCase().endsWith('.3mf');
@@ -332,9 +350,6 @@ module.exports = (db) => {
             throw new Error(`"${file.originalname}" is not a .3mf file — Bambu printers require .3mf files`);
           }
 
-          const partsPerPlate = ov.parts_per_plate || 1;
-          const qty = ov.quantity || 1;
-
           // Targeting fields from staging table overrides
           const amsSlot = ov.ams_slot !== undefined && ov.ams_slot !== '' ? parseInt(ov.ams_slot, 10) : null;
           const allowedGroups = ov.allowed_groups || null;
@@ -349,22 +364,22 @@ module.exports = (db) => {
           const partResult = db.prepare(`
             INSERT INTO parts (project_id, name, target_qty, print_time_seconds, material_grams, sort_order, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(project_id, partName, qty, estPrintSecs, materialGrams, nextSort, now, now);
+          `).run(project_id, partName, parsedQty, estPrintSecs, materialGrams, nextSort, now, now);
 
           // Create the gcode record with AMS and targeting fields
           db.prepare(`
             INSERT INTO gcodes (part_id, printer_model, filename, filepath, parts_per_plate, est_print_secs, material_grams, ams_slot, allowed_groups, required_material, required_color, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(partResult.lastInsertRowid, printerModel, file.originalname, file.filename, partsPerPlate, estPrintSecs, materialGrams, amsSlot, allowedGroups, requiredMaterial, requiredColor, now);
+          `).run(partResult.lastInsertRowid, printerModel, file.originalname, file.filename, parsedPpp, estPrintSecs, materialGrams, amsSlot, allowedGroups, requiredMaterial, requiredColor, now);
 
           nextSort++;
 
           results.push({
             id: partResult.lastInsertRowid,
             name: partName,
-            target_qty: qty,
+            target_qty: parsedQty,
             printer_model: printerModel,
-            parts_per_plate: partsPerPlate,
+            parts_per_plate: parsedPpp,
             est_print_secs: estPrintSecs,
             material_grams: materialGrams,
             filament_type: gcodeMeta.filament_type || '',

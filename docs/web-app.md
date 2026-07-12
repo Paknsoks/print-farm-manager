@@ -249,10 +249,15 @@ Primary operator screen for setting up and launching print runs.
 
 - **Bulk Import Panel** (new): multi-select gcode files, stage them for review in a table, then import all at once.
   - Each file becomes a staging row with auto-named part (from filename), qty (default 1), parts per plate (default 1), and printer model dropdown
-  - Bulk-edit bar: set all Qty / Parts Per Plate / Printer Model at once
+  - Bulk-edit bar: set all Qty / Parts Per Plate / Printer Model at once for 2+ files
+  - Targeting bar: Material / Color (dropdowns from the filament library), Groups (comma-separated input with datalist autocomplete from existing printer groups), and AMS Slot (external spool or AMS slot 1–4) — sets targeting fields on all rows at once
   - Printer model dropdown only shows models configured printers exist for
+  - AMS Slot is always visible when files are staged, independent of the filament library — Bambu-only farms without a filament library can still select AMS/external-spool
+  - Server validates quantity and parts-per-plate must be positive integers (> 0) before creating records
+  - Uploaded files receive unique on-disk names (timestamp + random hex) so two files with the same basename do not collide
+  - Overrides are applied by position (file order matches override order), not by basename — avoids collisions when two rows share a filename
   - "Import N Part(s)" creates all parts and gcode records in a single transaction
-  - G-code files are automatically parsed for print time and filament usage from slicer metadata
+  - G-code files are automatically parsed for print time and filament usage from slicer metadata (including day components like "1d 2h 30m", and small files up to 4KB are scanned with both head and tail patterns)
   - Per-file overrides (name, qty, model, parts per plate) from the staging table take priority over gcode metadata
 - **Parse G-code button**: in per-part G-code estimate rows, "Parse G-code" reads the actual file content for slicer metadata and fills the time/material fields
 
