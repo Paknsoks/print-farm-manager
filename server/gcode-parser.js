@@ -6,8 +6,8 @@ const fs = require('fs');
 // so metadata is found regardless of where the slicer places it. Bambu
 // .3mf files are handled separately by ../3mf-parser.js.
 
-const HEAD_BYTES = 4 * 1024;  // 4KB — sufficient for Cura/Bambu header blocks
-const TAIL_BYTES = 50 * 1024; // 50KB — sufficient for PrusaSlicer/Orca footer blocks
+const HEAD_BYTES = 4 * 1024;  // 4KB, sufficient for Cura/Bambu header blocks
+const TAIL_BYTES = 50 * 1024; // 50KB, sufficient for PrusaSlicer/Orca footer blocks
 
 // Tail patterns (PrusaSlicer / OrcaSlicer / Bambu Studio)
 const TAIL_PATTERNS = [
@@ -20,7 +20,7 @@ const TAIL_PATTERNS = [
   { key: 'printer_model',     regex: /printer_model\s*=\s*([\w\s-]+)/i },
 ];
 
-// Head patterns (Cura — runs in header, only a few fields)
+// Head patterns (Cura: runs in header, only a few fields)
 const HEAD_PATTERNS = [
   { key: 'estimated_time_s',  regex: /^;TIME:(\d+)/ },                      // Cura: ;TIME:1838 (seconds)
   { key: 'layer_height',      regex: /^;Layer height:\s*([\d.]+)/i },       // Cura: ;Layer height: 0.2

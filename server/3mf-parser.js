@@ -2,19 +2,19 @@ const fs = require('fs');
 const zlib = require('zlib');
 
 // Bambu Studio .3mf files are ZIP archives. This module reads the internal
-// Metadata/plate_1.json to extract layer_height. Print time, filament weight,
-// filament type, and temperatures are NOT embedded in .3mf exports — those
-// are generated at print time by the printer.
+// Metadata/plate_1.json to extract layer_height. Print time, filament
+// weight, filament type, and temperatures are NOT embedded in .3mf
+// exports; those are generated at print time by the printer.
 
 function readU32(buf, offset) { return buf.readUInt32LE(offset); }
 function readU16(buf, offset) { return buf.readUInt16LE(offset); }
 
 /**
  * Parse a .3mf (ZIP archive) and extract metadata from Metadata/plate_1.json.
- * Returns { layer_height: number|null } — other fields always null.
+ * Returns { layer_height: number|null }; other fields always null.
  */
-const MAX_FILE_SIZE = 50 * 1024 * 1024;       // 50 MB — .3mf slice projects are rarely larger
-const MAX_COMPRESSED_ENTRY = 10 * 1024 * 1024; // 10 MB — plate_1.json is a few KB
+const MAX_FILE_SIZE = 50 * 1024 * 1024;       // 50 MB; .3mf slice projects are rarely larger
+const MAX_COMPRESSED_ENTRY = 10 * 1024 * 1024; // 10 MB; plate_1.json is a few KB
 
 function parse3mfFile(filePath) {
   const result = { layer_height: null };

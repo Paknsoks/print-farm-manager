@@ -18,6 +18,7 @@ export default function BulkImportPanel({ projectId, onImported }) {
   const [bulkColor, setBulkColor] = useState('');
   const [bulkGroups, setBulkGroups] = useState('');
   const [availableGroups, setAvailableGroups] = useState([]);
+  const [amsSlotOptions, setAmsSlotOptions] = useState([]);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -100,16 +101,16 @@ export default function BulkImportPanel({ projectId, onImported }) {
           <span style={{ fontSize: 11, color: '#475569' }}>Bulk set all:</span>
           <span style={{ fontSize: 11, color: '#64748b' }}>Qty</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('qty', +e.target.value)} style={{ ...sx.i, width: 70 }} />
           <span style={{ fontSize: 11, color: '#64748b' }}>Per Plate</span><input type="number" min={1} placeholder="1" onChange={e => e.target.value && bulk('ppp', +e.target.value)} style={{ ...sx.i, width: 70 }} />
-          {models.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Model</span><select onChange={e => e.target.value && bulk('model', e.target.value)} style={{ ...sx.i, width: 100, fontSize: 11 }}><option value="">Set all…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select></>}
+          {models.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Model</span><select onChange={e => { const v = e.target.value; if (v) { bulk('model', v); fetch(`/api/printers/ams?model=${encodeURIComponent(v)}`).then(r => r.json()).then(setAmsSlotOptions).catch(() => setAmsSlotOptions([])); } else { setAmsSlotOptions([]); } }} style={{ ...sx.i, width: 100, fontSize: 11 }}><option value="">Set all…</option>{models.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}</select></>}
         </div>
       )}
       {items.length > 0 && (
         <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #2d3748' }}>
           <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>Targeting (all rows):</span>
-          {filamentTypes.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Material</span><select value={bulkMaterial} onChange={e => { setBulkMaterial(e.target.value); setBulkColor(''); }} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">— any —</option>{filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}</select></>}
-          {colorOptions.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Color</span><select value={bulkColor} onChange={e => setBulkColor(e.target.value)} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">— any —</option>{colorOptions.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></>}
+          {filamentTypes.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Material</span><select value={bulkMaterial} onChange={e => { setBulkMaterial(e.target.value); setBulkColor(''); }} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">(any)</option>{filamentTypes.map(t => <option key={t.id} value={t.name}>{t.name}</option>)}</select></>}
+          {colorOptions.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Color</span><select value={bulkColor} onChange={e => setBulkColor(e.target.value)} style={{ ...sx.i, width: 120, fontSize: 11 }}><option value="">(any)</option>{colorOptions.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}</select></>}
           {availableGroups.length > 0 && <><span style={{ fontSize: 11, color: '#64748b' }}>Groups</span><input type="text" value={bulkGroups} onChange={e => setBulkGroups(e.target.value)} placeholder="comma-separated" list="bulk-group-list" style={{ ...sx.i, width: 160, fontSize: 11 }} /><datalist id="bulk-group-list">{availableGroups.map(g => <option key={g} value={g} />)}</datalist></>}
-          <span style={{ fontSize: 11, color: '#64748b' }}>AMS Slot</span><select onChange={e => e.target.value && bulk('amsSlot', e.target.value)} style={{ ...sx.i, width: 130, fontSize: 11 }}><option value="">— choose a slot —</option><option value="-1">External Spool</option><option value="0">AMS Slot 1</option><option value="1">AMS Slot 2</option><option value="2">AMS Slot 3</option><option value="3">AMS Slot 4</option></select>
+          <span style={{ fontSize: 11, color: '#64748b' }}>AMS Slot</span><select onChange={e => e.target.value && bulk('amsSlot', e.target.value)} style={{ ...sx.i, width: 130, fontSize: 11 }}><option value="">(choose a slot)</option><option value="-1">External Spool</option>{amsSlotOptions.filter(s => s.slot >= 0).map(s => <option key={s.slot} value={s.slot}>AMS Slot {s.slot + 1}{s.type ? ` — ${s.type}` : ''}</option>)}</select>
         </div>
       )}
       {items.length > 0 && (
